@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; script-src &#x27;sha256-EqgoFGbH6Y49WOSs3g18kgAaSfNn2jVhfBGsdkahad4=&#x27; &#x27;sha256-Tupb0Z+HJpC+1TqQgMXzBMV5EWFUAqESbdqIW4++Tp4=&#x27;; style-src &#x27;unsafe-inline&#x27;; img-src data: blob:; font-src data:; media-src data: blob:; frame-src &#x27;self&#x27; data: blob:; connect-src &#x27;none&#x27;; worker-src &#x27;none&#x27;; object-src &#x27;none&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;"><meta name="referrer" content="no-referrer">
+<script nonce="__MOZCORP_NONCE__" data-moz-source="prelude.js">
+// Private station boundary. This code never receives Keeper identity or vault keys.
+(function (root) {
+  'use strict';
+  const protocol = 'doodle-mozcorp/v1', stationId = 'mozville';
+  const focusAnchors = [];
+  const preferenceKeys = new Set(['btw.mozmoji.fork.v1', 'btw.voodont.blind-backfeed.v1']);
+  const sessionLimits = {'btw.integrity.handoff.v1':700000,'btw-everywhen-fiction-cue-v1':4096};
+  const stations = new Set(['machine','recent','voodont','everywhen','mozville','friend-scrubber','integrity','swordfish','hope-lon','bug-world']);
+  const handlers = new Map(), pending = new Map(), outbound = [], dirtyPreferences = new Set();
+  const audioContexts = new Set(), wrappedAudio = new Map();
+  let token = null, sequence = 0, closed = false, lastDirty = null;
+  for(const name of ['AudioContext','webkitAudioContext']){
+    const native=root[name];if(typeof native!=='function')continue;
+    let wrapped=wrappedAudio.get(native);
+    if(!wrapped){wrapped=new Proxy(native,{construct(target,args,newTarget){const context=Reflect.construct(target,args,newTarget===wrapped?target:newTarget);audioContexts.add(context);return context;}});wrappedAudio.set(native,wrapped);}
+    try{root[name]=wrapped;}catch{}
+  }
+  function post(value) { root.parent.postMessage({protocol,stationId,...value}, '*'); }
+  function flush() { if (!token || closed) return; while(outbound.length) { const message=outbound.shift(); if(message.type!=='request'||pending.has(message.requestId))post({...message,token}); } }
+  function request(requestType, payload = {}) {
+    if (!['save','cloud','upgrades','open-original','open-link','news','hope','pref-set'].includes(requestType)) return Promise.reject(new Error('This station action is not supported.'));
+    if (closed) return Promise.reject(new Error('This station has closed.'));
+    const requestId = stationId+'-'+(++sequence);
+    return new Promise((resolve,reject)=>{
+      const timer=root.setTimeout(()=>{pending.delete(requestId);reject(new Error('The Keeper did not answer. Your work is still in this station.'));},20000);
+      pending.set(requestId,{resolve,reject,timer}); outbound.push({type:'request',requestId,requestType,payload}); flush();
+    });
+  }
+  function preferenceChanged(key,value) {
+    if (!preferenceKeys.has(key)) return;
+    dirtyPreferences.add(key);
+    if(token) request('pref-set',{key,value}).catch(()=>{});
+  }
+  function limitFor(kind,key){return kind==='local'&&preferenceKeys.has(key)?65536:Object.hasOwn(sessionLimits,key)?sessionLimits[key]:2000000;}
+  function store(kind) {
+    const map = new Map();
+    const api={
+      getItem(key){return map.get(String(key))??null;},
+      setItem(key,value){key=String(key);value=String(value);if(key.length>256||value.length>limitFor(kind,key))throw new Error('This station value is too large. Export a file to keep it.');if(!map.has(key)&&map.size>=128)throw new Error('This station memory is full.');let total=key.length+value.length;for(const [k,v]of map)if(k!==key)total+=k.length+v.length;if(total>8000000)throw new Error('This station memory is full. Export a file to keep it.');map.set(key,value);if(kind==='local')preferenceChanged(key,value);},
+      removeItem(key){key=String(key);map.delete(key);if(kind==='local')preferenceChanged(key,null);},
+      clear(){for(const key of map.keys())api.removeItem(key);},key(index){return [...map.keys()][index]??null;},
+      get length(){return map.size;}
+    };
+    return {api,map};
+  }
+  const local=store('local'),session=store('session');
+  const MozStore=Object.freeze({local:local.api,session:session.api,
+    snapshot(){return {local:Object.fromEntries(local.map),session:Object.fromEntries(session.map)};},
+    restore(value){
+      if(!value||typeof value!=='object')throw new Error('Invalid station memory.');
+      const changes=[];
+      for(const [which,target] of [['local',local],['session',session]]){
+        if(value[which]===undefined)continue;
+        if(!value[which]||typeof value[which]!=='object'||Array.isArray(value[which]))throw new Error('Invalid station memory.');
+        const entries=Object.entries(value[which]);if(entries.length>128)throw new Error('Too many station values.');
+        let total=0;for(const [key,text] of entries){if(key.length>256||typeof text!=='string'||text.length>limitFor(which,key))throw new Error('Invalid station value.');total+=key.length+text.length;}if(total>8000000)throw new Error('This station memory is full.');
+        changes.push({target,entries});
+      }
+      for(const {target,entries}of changes){target.map.clear();for(const [key,text]of entries)target.map.set(key,text);}
+    }
+  });
+  function navigate(next,options={}) {
+    if(!stations.has(next))throw new Error('Unknown MozCorp station.');
+    const transfer={};
+    const supplied=options.session||Object.fromEntries(session.map);
+    for(const [key,limit]of Object.entries(sessionLimits))if(Object.hasOwn(supplied,key)){if(typeof supplied[key]!=='string'||supplied[key].length>limit)throw new Error('Invalid station handoff.');transfer[key]=supplied[key];}
+    const anchor=typeof options.anchor==='string'&&/^[A-Za-z][\w-]{0,99}$/.test(options.anchor)?options.anchor:'';
+    outbound.push({type:'navigate',payload:{stationId:next,anchor,session:transfer}});flush();
+  }
+  function register(requestType,handler) {
+    if(!['capture','restore','cloud-restore','stop','checkpoint','focus'].includes(requestType)||typeof handler!=='function')throw new Error('Unknown station adapter.');
+    handlers.set(requestType,handler);return()=>handlers.delete(requestType);
+  }
+  // Station adapters override these narrow defaults after the original scripts.
+  register('capture',()=>{throw new Error('This private desk uses its own export controls and does not create Telephone project snapshots.');});
+  register('restore',()=>{throw new Error('This private desk does not accept generic Telephone project restoration.');});
+  register('checkpoint',()=>({editVersion:0}));
+  register('stop',async()=>{await Promise.all([...audioContexts].map(async context=>{if(context.state!=='closed')try{await context.suspend();}catch{}}));return{stopped:true,editVersion:0};});
+  register('focus',(value={})=>{
+    if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!['anchor','session'].includes(key)))throw new Error('Invalid station focus request.');
+    if(value.session!==undefined&&(!value.session||typeof value.session!=='object'||Array.isArray(value.session)||Object.keys(value.session).length))throw new Error('This private desk does not accept a transferred source or fiction cue.');
+    const anchor=value.anchor??'';if(typeof anchor!=='string'||(anchor&&!focusAnchors.includes(anchor)))throw new Error('Unknown station focus anchor.');
+    if(anchor){const target=root.document.getElementById(anchor);if(!target)throw new Error('This station focus target is unavailable.');target.scrollIntoView({block:'start',behavior:'auto'});}
+    return{focused:true,anchor,editVersion:0};
+  });
+  root.MozStore=MozStore;
+  function dirty(value){if(!value||!Number.isSafeInteger(value.editVersion)||value.editVersion<0)return;lastDirty=value.editVersion;if(token)post({type:'dirty',token,editVersion:lastDirty});}
+  root.MozHost=Object.freeze({navigate,request,register,dirty,audioContexts,get stationId(){return stationId;},get ready(){return token!==null;}});
+  root.addEventListener('message',event=>{
+    if(event.source!==root.parent)return;
+    const message=event.data;
+    if(!message||message.protocol!==protocol||message.stationId!==stationId)return;
+    if(message.type==='init'){
+      if(token!==null||typeof message.token!=='string'||!/^[a-fA-F0-9]{32}$/.test(message.token))return;
+      token=message.token;
+      for(const key of preferenceKeys){const text=message.preferences?.[key];if(typeof text==='string'&&text.length<=65536&&!dirtyPreferences.has(key))local.map.set(key,text);}
+      for(const [key,limit]of Object.entries(sessionLimits)){const text=message.session?.[key];if(typeof text==='string'&&text.length<=limit)session.map.set(key,text);}
+      root.dispatchEvent(new CustomEvent('mozcorp:init',{detail:{stationId}}));
+      for(const key of dirtyPreferences)request('pref-set',{key,value:local.api.getItem(key)}).catch(()=>{});
+      if(lastDirty!==null)post({type:'dirty',token,editVersion:lastDirty});
+      flush();return;
+    }
+    if(!token||message.token!==token)return;
+    if(message.type==='response'){
+      const job=pending.get(message.requestId);if(!job)return;pending.delete(message.requestId);root.clearTimeout(job.timer);
+      if(message.error){
+        const value=message.error,error=new Error(typeof value==='string'?value:typeof value.message==='string'?value.message:'The Keeper could not complete this action.');
+        if(value&&typeof value==='object'){
+          if(Number.isInteger(value.status)&&value.status>=400&&value.status<=599)error.status=value.status;
+          if(typeof value.code==='string'&&/^[A-Za-z0-9_.-]{1,80}$/.test(value.code))error.code=value.code;
+        }
+        job.reject(error);
+      }else job.resolve(message.result);return;
+    }
+    if(message.type==='request'&&typeof message.requestId==='string'&&message.requestId.length<=100){
+      const handler=handlers.get(message.requestType);
+      if(!handler){post({type:'response',token,requestId:message.requestId,error:'This station adapter is unavailable.'});return;}
+      Promise.resolve().then(()=>handler(message.payload)).then(result=>post({type:'response',token,requestId:message.requestId,result}),error=>post({type:'response',token,requestId:message.requestId,error:error?.message||'This station could not complete the action.'}));
+    }
+  });
+  root.document.addEventListener('click',event=>{
+    const link=event.target.closest?.('a');if(!link||link.hasAttribute('download'))return;
+    if(link.dataset.mozStation||link.dataset.mozOriginal||link.dataset.mozService){
+      event.preventDefault();
+      if(link.dataset.mozService==='upgrades')request('upgrades',{action:'open'}).catch(error=>root.alert(error.message));
+      else if(link.dataset.mozStation)navigate(link.dataset.mozStation,{anchor:link.dataset.mozAnchor||''});
+      else request('open-original',{path:link.dataset.mozOriginal,anchor:link.dataset.mozAnchor||''}).catch(error=>root.alert(error.message));
+      return;
+    }
+    // Opaque private frames cannot open popups. Only an actual click may ask the
+    // trusted parent to show an external URL for review; it never opens it here.
+    if(!event.isTrusted||event.defaultPrevented)return;
+    const raw=link.getAttribute('href');if(!raw||raw.startsWith('#'))return;
+    let url;try{url=new URL(raw,root.location.href);}catch{return;}
+    if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.href.length>4096)return;
+    if(link.target==='_blank'||url.origin!==root.location.origin){
+      event.preventDefault();request('open-link',{url:url.href}).catch(error=>root.alert(error.message));
+    }
+  });
+  function ready(){post({type:'ready'});const anchor='';if(anchor)root.document.getElementById(anchor)?.scrollIntoView({block:'start',behavior:'auto'});}
+  if(root.document.readyState==='loading')root.document.addEventListener('DOMContentLoaded',ready,{once:true});else root.setTimeout(ready,0);
+  root.addEventListener('pagehide',()=>{closed=true;outbound.length=0;for(const job of pending.values()){root.clearTimeout(job.timer);job.reject(new Error('This station has closed.'));}pending.clear();handlers.clear();for(const context of audioContexts)if(context.state!=='closed')context.suspend().catch(()=>{});audioContexts.clear();});
+})(window);
+
+</script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#091018">
+  
+  <meta name="description" content="Mozville is a local fictional civic simulator with no real infrastructure controls or city data.">
+  <title>Mozville · Civic Simulator</title>
+  <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4NCjxwYXRoIGQ9Ik0yMiAxOS4yNzI3QzIyIDIwLjc3OSAyMC43NzkgMjIgMTkuMjcyNyAyMkgxNC43MjczQzEzLjIyMSAyMiAxMiAyMC43NzkgMTIgMTkuMjcyN1YxMkgxOS4yNzI3QzIwLjc3OSAxMiAyMiAxMy4yMjEgMjIgMTQuNzI3M1YxOS4yNzI3WiIgZmlsbD0iIzY4QzRGRiIvPg0KPHBhdGggZD0iTTIwIDJDMjEuMTA0NiAyIDIyIDIuODk1NDMgMjIgNFY3QzIyIDguMTA0NTcgMjEuMTA0NiA5IDIwIDlIMTdDMTUuODk1NCA5IDE1IDguMTA0NTcgMTUgN1Y0QzE1IDIuODk1NDMgMTUuODk1NCAyIDE3IDJIMjBaIiBmaWxsPSIjMEM3OUQ4Ii8+DQo8cGF0aCBkPSJNNyAxNUM4LjEwNDU3IDE1IDkgMTUuODk1NCA5IDE3VjIwQzkgMjEuMTA0NiA4LjEwNDU3IDIyIDcgMjJINEMyLjg5NTQzIDIyIDIgMjEuMTA0NiAyIDIwVjE3QzIgMTUuODk1NCAyLjg5NTQzIDE1IDQgMTVIN1oiIGZpbGw9IiMwQzc5RDgiLz4NCjxwYXRoIGQ9Ik0xMiAxMkg0LjcyNzI3QzMuMjIxMDQgMTIgMiAxMC43NzkgMiA5LjI3MjczVjQuNzI3MjdDMiAzLjIyMTA0IDMuMjIxMDQgMiA0LjcyNzI3IDJIOS4yNzI3M0MxMC43NzkgMiAxMiAzLjIyMTA0IDEyIDQuNzI3MjdWMTJaIiBmaWxsPSIjMkU5RUZGIi8+DQo8L3N2Zz4NCg==">
+  <style nonce="__MOZCORP_NONCE__">:root {
+  color-scheme: dark;
+  --ink: #f1f6f2;
+  --muted: #a1adb5;
+  --line: #38505a;
+  --panel: #101a23;
+  --deep: #071019;
+  --teal: #6ee8d0;
+  --yellow: #ffe37a;
+  --violet: #c7a6ff;
+  --orange: #ffa36b;
+  --danger: #ff9ba0;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 12% 0%, #28596c70, transparent 27rem),
+    radial-gradient(circle at 92% 10%, #3c275f74, transparent 25rem),
+    linear-gradient(145deg, #071019, #0b121c 60%, #10111e);
+}
+
+button, select { font: inherit; }
+button { cursor: pointer; }
+button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+
+.mz-shell { width: min(1320px, calc(100% - 2rem)); margin: 0 auto; padding: 1.6rem 0 2.8rem; }
+.mz-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .4rem .1rem 1.35rem; }
+.mz-kicker { margin: 0 0 .45rem; color: var(--teal); font: 750 .7rem/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .12em; }
+.mz-header h1 { margin: 0; font: 900 clamp(1.9rem, 5vw, 3.8rem)/.92 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: -.07em; }
+.mz-header h1 span { display: block; margin-top: .55rem; color: var(--yellow); font-size: .31em; letter-spacing: .25em; }
+.mz-home { color: #d1f5ee; font: 700 .9rem/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; text-underline-offset: .28em; white-space: nowrap; }
+
+.mz-boundary { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .45rem 1rem; align-items: center; padding: 1rem 1.1rem; border: 1px solid #4f8890; border-radius: .85rem; background: linear-gradient(100deg, #0b252cdd, #111726da); box-shadow: inset 0 1px #ffffff12, 0 .75rem 2rem #0004; }
+.mz-boundary-mark { display: grid; width: 3rem; height: 3rem; place-items: center; color: var(--teal); border: 1px solid #68cabb; border-radius: 50%; box-shadow: 0 0 1.6rem #6ee8d040; font: 900 2rem/1 Georgia, serif; }
+.mz-boundary strong { color: var(--yellow); font: 800 .72rem/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .12em; }
+.mz-boundary p { margin: .18rem 0 0; color: #d2e1e1; font-size: .92rem; line-height: 1.55; }
+.mz-boundary .mz-boundary-tail { grid-column: 2; margin: 0; color: #9fc2c5; font: 700 .72rem/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+.mz-status { display: flex; align-items: center; gap: .6rem; margin: 1rem 0; padding: .75rem .9rem; color: #cfe3e2; border-left: 3px solid var(--teal); background: #11212a; font: 700 .78rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.mz-status-dot { width: .55rem; height: .55rem; border-radius: 50%; background: var(--teal); box-shadow: 0 0 1rem var(--teal); }
+
+.mz-layout { display: grid; grid-template-columns: minmax(0, 1.16fr) minmax(330px, .84fr); gap: 1rem; align-items: start; }
+.mz-console, .mz-dashboard { min-width: 0; border: 1px solid var(--line); border-radius: 1rem; background: linear-gradient(150deg, #13202ae8, #0b121cfa); box-shadow: 0 1.35rem 4rem #0005, inset 0 1px #ffffff10; }
+.mz-console { padding: clamp(1rem, 2.5vw, 1.65rem); }
+.mz-dashboard { position: sticky; top: 1rem; padding: clamp(1rem, 2.3vw, 1.5rem); }
+.mz-section-head, .mz-map-head { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.mz-section-head h2, .mz-map-head h2, .mz-events h2, .mz-log h2 { margin: 0; font-size: clamp(1.1rem, 2.2vw, 1.5rem); line-height: 1.18; }
+.mz-tag, .mz-event-label { border: 1px solid #687a84; border-radius: 999px; padding: .35rem .55rem; color: #b9c9d1; background: #081018; font: 800 .6rem/1.25 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .07em; white-space: nowrap; }
+.mz-event-label { color: var(--yellow); border-color: #927a48; background: #1a180d; }
+
+.mz-districts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin-top: 1.15rem; }
+.mz-district { --district: #6ee8d0; padding: 1rem; border: 1px solid #35515d; border-top: 3px solid var(--district); border-radius: .75rem; background: #0a121a; transition: border-color .18s, background .18s, opacity .18s; }
+.mz-district[data-district-card="market"] { --district: #ffe37a; }
+.mz-district[data-district-card="cloud"] { --district: #c7a6ff; }
+.mz-district[data-district-card="canal"] { --district: #77bfff; }
+.mz-district.is-dark { opacity: .75; border-top-color: #5f6c73; background: #090d12; }
+.mz-district header { display: flex; align-items: center; gap: .5rem; }
+.mz-district h3 { margin: 0; color: var(--district); font: 850 .86rem/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.mz-district-dot { width: .6rem; height: .6rem; border-radius: 50%; background: var(--district); box-shadow: 0 0 .9rem var(--district); }
+.mz-district.is-dark .mz-district-dot { background: #5f6c73; box-shadow: none; }
+.mz-district p { min-height: 3.4em; margin: .65rem 0 .9rem; color: var(--muted); font-size: .78rem; line-height: 1.45; }
+.mz-switch { display: flex; align-items: center; gap: .55rem; color: #d8e1e6; font: 700 .7rem/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; cursor: pointer; }
+.mz-switch input { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; }
+.mz-switch span { position: relative; width: 2.25rem; height: 1.25rem; flex: none; border: 1px solid #58717e; border-radius: 2rem; background: #17242c; transition: .18s; }
+.mz-switch input:focus-visible + span { outline: 3px solid #fff; outline-offset: 3px; }
+.mz-switch span::after { content: ""; position: absolute; top: .18rem; left: .18rem; width: .75rem; height: .75rem; border-radius: 50%; background: #8aa1ad; transition: .18s; }
+.mz-switch input:checked + span { border-color: var(--district); background: color-mix(in srgb, var(--district) 22%, #14242a); }
+.mz-switch input:checked + span::after { left: 1.18rem; background: var(--district); box-shadow: 0 0 .8rem var(--district); }
+.mz-select-label { display: block; margin-top: .95rem; color: #aabbc4; font: 750 .62rem/1.3 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .06em; text-transform: uppercase; }
+.mz-select-label select { display: block; width: 100%; margin-top: .35rem; padding: .5rem .6rem; color: #e9f1f5; border: 1px solid #435967; border-radius: .4rem; background: #111d27; font-size: .78rem; }
+
+.mz-events { margin-top: 1.25rem; padding-top: 1.2rem; border-top: 1px solid #324751; }
+.mz-event-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; margin-top: .85rem; }
+.mz-event { display: grid; grid-template-columns: auto 1fr; column-gap: .6rem; text-align: left; padding: .75rem; color: #cfdae0; border: 1px solid #3c5361; border-radius: .65rem; background: #0c151e; transition: .16s; }
+.mz-event:hover { border-color: #8cabb3; background: #122330; }
+.mz-event.is-active { color: #fff; border-color: var(--yellow); background: linear-gradient(135deg, #292209, #112532); box-shadow: inset 0 0 1rem #ffe37a16; }
+.mz-event span { grid-row: span 2; align-self: center; color: var(--yellow); font-size: 1.35rem; }
+.mz-event strong { font: 800 .72rem/1.25 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.mz-event small { margin-top: .18rem; color: #91a4ae; font-size: .7rem; line-height: 1.3; }
+
+.mz-actions { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: 1.2rem; }
+.mz-button { min-height: 2.55rem; padding: .65rem .85rem; color: #d8e7ed; border: 1px solid #516c78; border-radius: .5rem; background: #14232e; font: 800 .72rem/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.mz-button:hover { color: #fff; border-color: #a2c2cb; background: #193442; }
+.mz-button-primary { color: #091219; border-color: var(--teal); background: var(--teal); }
+.mz-button-primary:hover { color: #091219; background: #a0ffeb; }
+.mz-note { margin: .9rem 0 0; color: #80939e; font: 700 .67rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+.mz-map-wrap { position: relative; margin-top: .7rem; overflow: hidden; border: 1px solid #354d59; border-radius: .85rem; background: radial-gradient(circle at center, #172b38, #08111a 67%); }
+.mz-map { display: block; width: 100%; max-height: min(63vh, 500px); overflow: visible; }
+.mz-map-orbit { fill: none; stroke: #5d7380; stroke-width: 1; stroke-dasharray: 3 9; }
+.mz-map-orbit-b { stroke: #2e5962; stroke-dasharray: 2 6; }
+.mz-map-road { fill: none; stroke: #6b7d87; stroke-width: 4; opacity: .42; }
+.mz-map-district path { fill: #173a3e; stroke: #79e4d4; stroke-width: 2; transition: fill .2s, stroke .2s, opacity .2s; }
+.mz-map-district[data-map-district="market"] path { fill: #443718; stroke: #ffe37a; }
+.mz-map-district[data-map-district="cloud"] path { fill: #33284e; stroke: #c7a6ff; }
+.mz-map-district[data-map-district="canal"] path { fill: #1c3550; stroke: #77bfff; }
+.mz-map-district.is-dark path { fill: #141b22; stroke: #59656c; opacity: .7; }
+.mz-map-district text { fill: #eff9fa; font: 800 13px ui-monospace, SFMono-Regular, Consolas, monospace; text-anchor: middle; letter-spacing: 1px; pointer-events: none; }
+.mz-map-district.is-dark text { fill: #8f9ba1; }
+.mz-map-core { fill: #0c1319; stroke: #fff4b7; stroke-width: 2; }
+.mz-map-core-word { fill: #fff4b7; font: 850 12px ui-monospace, SFMono-Regular, Consolas, monospace; text-anchor: middle; letter-spacing: 2px; }
+.mz-map-caption { position: absolute; right: .75rem; bottom: .7rem; left: .75rem; margin: 0; padding: .5rem .65rem; color: #d7e4e7; border: 1px solid #4b6974; background: #09121bd9; font: 750 .64rem/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+.mz-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .55rem; margin-top: .85rem; }
+.mz-metrics article { min-width: 0; padding: .7rem; border: 1px solid #364e5b; border-radius: .6rem; background: #0a131c; }
+.mz-metrics span, .mz-metrics small { display: block; color: #9aadb7; font: 800 .55rem/1.3 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .04em; }
+.mz-metrics strong { display: block; margin: .25rem 0 .05rem; color: var(--yellow); font: 900 clamp(1.25rem, 3vw, 1.8rem)/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.mz-metrics i { display: block; height: .35rem; margin-top: .6rem; overflow: hidden; border-radius: .5rem; background: #182933; }
+.mz-metrics b { display: block; height: 100%; width: 50%; border-radius: inherit; background: linear-gradient(90deg, var(--teal), var(--yellow)); transition: width .25s; }
+
+.mz-log { margin-top: .85rem; padding: .85rem; border: 1px dashed #587784; border-radius: .65rem; background: #0b151e; }
+.mz-log h2 { font-size: .98rem; }
+.mz-log p:last-child { margin: .7rem 0 0; color: #cad8dc; font: .82rem/1.55 Georgia, serif; }
+
+@media (max-width: 940px) { .mz-layout { grid-template-columns: 1fr; } .mz-dashboard { position: static; } }
+@media (max-width: 620px) { .mz-shell { width: min(100% - 1rem, 1320px); padding-top: 1rem; } .mz-header { align-items: flex-start; flex-wrap: wrap; } .mz-boundary { grid-template-columns: auto minmax(0, 1fr); } .mz-boundary .mz-boundary-tail { grid-column: 1 / -1; } .mz-districts, .mz-event-grid { grid-template-columns: 1fr; } .mz-metrics { grid-template-columns: 1fr 1fr 1fr; } .mz-metrics article { padding: .55rem; } .mz-map-district text { font-size: 11px; } }
+@media (max-width: 410px) { .mz-metrics { grid-template-columns: 1fr; } .mz-map-caption { position: static; border-width: 1px 0 0; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }
+</style>
+</head>
+<body>
+  <main class="mz-shell">
+    <header class="mz-header">
+      <div>
+        <p class="mz-kicker">BULLSHIT TELEPHONE WORLD / FICTIONAL STATION 13</p>
+        <h1>MOZVILLE <span>CIVIC SIMULATOR</span></h1>
+      </div>
+      <a class="mz-home" href="#" data-moz-station="machine">Back to the world</a>
+    </header>
+
+    <section class="mz-boundary" aria-labelledby="mz-boundary-title">
+      <div class="mz-boundary-mark" aria-hidden="true">◌</div>
+      <div>
+        <strong id="mz-boundary-title">FICTIONAL / LOCAL CONTROL ROOM</strong>
+        <p>These district lights, buses, events, and meters are invented in this tab. Mozville cannot contact streetlights, traffic systems, maps, people, or city services.</p>
+      </div>
+      <p class="mz-boundary-tail">The simulator uses no location, account, sensor, or cloud save data. It sends no simulation data and makes no programmatic or API requests.</p>
+    </section>
+
+    <section class="mz-status" aria-live="polite">
+      <span class="mz-status-dot" aria-hidden="true"></span>
+      <span id="mz-status-copy">Simulation ready. Choose a fictional city condition or adjust one district.</span>
+    </section>
+
+    <div class="mz-layout">
+      <section class="mz-console" aria-labelledby="mz-controls-title">
+        <div class="mz-section-head">
+          <div>
+            <p class="mz-kicker">01 / DISTRICT DESK</p>
+            <h2 id="mz-controls-title">Small choices, visible tradeoffs</h2>
+          </div>
+          <span class="mz-tag">INVENTED METRICS</span>
+        </div>
+
+        <div class="mz-districts">
+          <article class="mz-district" data-district-card="lantern">
+            <header><span class="mz-district-dot" aria-hidden="true"></span><h3>Lantern Row</h3></header>
+            <p>Porches, a late bakery, and a very patient bus stop.</p>
+            <label class="mz-switch"><input type="checkbox" data-light="lantern" checked><span aria-hidden="true"></span>Streetlight loop</label>
+            <label class="mz-select-label" for="mz-priority-lantern">Street priority<select id="mz-priority-lantern" data-priority="lantern"><option value="walk">People walking</option><option value="bus">Night bus</option><option value="calm">Quiet block</option></select></label>
+          </article>
+
+          <article class="mz-district" data-district-card="canal">
+            <header><span class="mz-district-dot" aria-hidden="true"></span><h3>Canal Loop</h3></header>
+            <p>Rain gardens, small bridges, and a route that avoids making a splash.</p>
+            <label class="mz-switch"><input type="checkbox" data-light="canal" checked><span aria-hidden="true"></span>Path lamps</label>
+            <label class="mz-select-label" for="mz-priority-canal">Street priority<select id="mz-priority-canal" data-priority="canal"><option value="walk">People walking</option><option value="bus">Shuttle bus</option><option value="calm">Rain garden</option></select></label>
+          </article>
+
+          <article class="mz-district" data-district-card="market">
+            <header><span class="mz-district-dot" aria-hidden="true"></span><h3>Night Market</h3></header>
+            <p>Soup windows, borrowed stools, and a low-stakes concert queue.</p>
+            <label class="mz-switch"><input type="checkbox" data-light="market" checked><span aria-hidden="true"></span>Market lights</label>
+            <label class="mz-select-label" for="mz-priority-market">Street priority<select id="mz-priority-market" data-priority="market"><option value="walk">Pedestrian plaza</option><option value="bus">Festival shuttle</option><option value="calm">Early close</option></select></label>
+          </article>
+
+          <article class="mz-district" data-district-card="cloud">
+            <header><span class="mz-district-dot" aria-hidden="true"></span><h3>Cloud Steps</h3></header>
+            <p>A hillside stair, an elevator that only exists in the story, and wide views.</p>
+            <label class="mz-switch"><input type="checkbox" data-light="cloud" checked><span aria-hidden="true"></span>Step markers</label>
+            <label class="mz-select-label" for="mz-priority-cloud">Street priority<select id="mz-priority-cloud" data-priority="cloud"><option value="walk">Step access</option><option value="bus">Hill connector</option><option value="calm">Lookout quiet</option></select></label>
+          </article>
+        </div>
+
+        <section class="mz-events" aria-labelledby="mz-events-title">
+          <div>
+            <p class="mz-kicker">02 / CONDITIONS</p>
+            <h2 id="mz-events-title">Pick a story weather card</h2>
+          </div>
+          <div class="mz-event-grid" role="group" aria-label="Fictional city conditions">
+            <button class="mz-event is-active" type="button" data-event="clear" aria-pressed="true"><span>☼</span><strong>Clear evening</strong><small>Ordinary streets</small></button>
+            <button class="mz-event" type="button" data-event="rain" aria-pressed="false"><span>☂</span><strong>Rain rehearsal</strong><small>Wet sidewalks, patient buses</small></button>
+            <button class="mz-event" type="button" data-event="festival" aria-pressed="false"><span>✦</span><strong>Lantern festival</strong><small>Extra walkers, shared routes</small></button>
+            <button class="mz-event" type="button" data-event="repair" aria-pressed="false"><span>⌁</span><strong>Repair morning</strong><small>One lane rests, care crew visits</small></button>
+          </div>
+        </section>
+
+        <div class="mz-actions">
+          <button id="mz-reset" class="mz-button" type="button">Reset fictional city</button>
+          <button id="mz-export" class="mz-button mz-button-primary" type="button">Download scene card .JSON</button>
+        </div>
+        <p class="mz-note">Downloads contain this invented configuration and an export timestamp only. They are not city records, plans, predictions, or instructions for real systems.</p>
+      </section>
+
+      <aside class="mz-dashboard" aria-labelledby="mz-map-title">
+        <div class="mz-map-head">
+          <div><p class="mz-kicker">03 / MAP</p><h2 id="mz-map-title">Circular city sketch</h2></div>
+          <span id="mz-event-label" class="mz-event-label">CLEAR EVENING</span>
+        </div>
+        <div class="mz-map-wrap">
+          <svg class="mz-map" viewBox="0 0 500 500" role="img" aria-labelledby="mz-map-svg-title mz-map-svg-desc">
+            <title id="mz-map-svg-title">A fictional circular map of Mozville</title>
+            <desc id="mz-map-svg-desc">Four labeled fictional districts surround a central civic circle. Colors respond only to controls on this page.</desc>
+            <circle class="mz-map-orbit mz-map-orbit-a" cx="250" cy="250" r="213"></circle>
+            <circle class="mz-map-orbit mz-map-orbit-b" cx="250" cy="250" r="154"></circle>
+            <path class="mz-map-road" d="M54 250H446M250 54V446M112 112L388 388M388 112L112 388"></path>
+            <g class="mz-map-district" data-map-district="lantern"><path d="M250 62A188 188 0 0 1 438 250H275A25 25 0 0 0 250 225Z"></path><text x="337" y="170">LANTERN</text><text x="337" y="192">ROW</text></g>
+            <g class="mz-map-district" data-map-district="market"><path d="M438 250A188 188 0 0 1 250 438V275A25 25 0 0 0 275 250Z"></path><text x="314" y="338">NIGHT</text><text x="314" y="360">MARKET</text></g>
+            <g class="mz-map-district" data-map-district="cloud"><path d="M250 438A188 188 0 0 1 62 250H225A25 25 0 0 0 250 275Z"></path><text x="142" y="338">CLOUD</text><text x="142" y="360">STEPS</text></g>
+            <g class="mz-map-district" data-map-district="canal"><path d="M62 250A188 188 0 0 1 250 62V225A25 25 0 0 0 225 250Z"></path><text x="142" y="170">CANAL</text><text x="142" y="192">LOOP</text></g>
+            <circle class="mz-map-core" cx="250" cy="250" r="48"></circle>
+            <text class="mz-map-core-word" x="250" y="246">CARE</text>
+            <text class="mz-map-core-word" x="250" y="267">LOOP</text>
+          </svg>
+          <p id="mz-map-caption" class="mz-map-caption">All four invented districts are awake.</p>
+        </div>
+
+        <section class="mz-metrics" aria-label="Fictional city meters">
+          <article><span>POWER DRAW</span><strong id="mz-power">76</strong><small>imaginary units</small><i><b id="mz-power-bar"></b></i></article>
+          <article><span>COMFORT</span><strong id="mz-comfort">72</strong><small>story estimate</small><i><b id="mz-comfort-bar"></b></i></article>
+          <article><span>WALK / WAIT</span><strong id="mz-wait">5</strong><small>fictional minutes</small><i><b id="mz-wait-bar"></b></i></article>
+        </section>
+
+        <section class="mz-log" aria-labelledby="mz-log-title">
+          <div><p class="mz-kicker">SIMULATION NOTE</p><h2 id="mz-log-title">What the city is pretending to need</h2></div>
+          <p id="mz-log-copy">Clear evening: paths are open, nobody has to hurry, and the city is not measuring anyone.</p>
+        </section>
+      </aside>
+    </div>
+  </main>
+  <script nonce="__MOZCORP_NONCE__" data-moz-source="mozville.js">
+(() => {
+  "use strict";
+
+  const districtNames = {
+    lantern: "Lantern Row",
+    canal: "Canal Loop",
+    market: "Night Market",
+    cloud: "Cloud Steps",
+  };
+
+  const conditions = {
+    clear: {
+      label: "CLEAR EVENING",
+      power: 0,
+      comfort: 2,
+      wait: 0,
+      copy: "Clear evening: paths are open, nobody has to hurry, and the city is not measuring anyone.",
+    },
+    rain: {
+      label: "RAIN REHEARSAL",
+      power: 5,
+      comfort: -4,
+      wait: 3,
+      copy: "Rain rehearsal: the fictional bus takes its time, the gardens get first dibs, and every route stays optional.",
+    },
+    festival: {
+      label: "LANTERN FESTIVAL",
+      power: 12,
+      comfort: 7,
+      wait: 2,
+      copy: "Lantern festival: the plaza fills up gently, the shuttle makes another loop, and the map remembers to leave room.",
+    },
+    repair: {
+      label: "REPAIR MORNING",
+      power: -8,
+      comfort: 1,
+      wait: 4,
+      copy: "Repair morning: one pretend lane takes a rest. The city treats maintenance as part of welcome, not a failure.",
+    },
+  };
+
+  const defaults = {
+    event: "clear",
+    districts: {
+      lantern: { light: true, priority: "walk" },
+      canal: { light: true, priority: "walk" },
+      market: { light: true, priority: "walk" },
+      cloud: { light: true, priority: "walk" },
+    },
+  };
+
+  const cloneDefaults = () => JSON.parse(JSON.stringify(defaults));
+  let state = cloneDefaults();
+
+  const status = document.querySelector("#mz-status-copy");
+  const eventLabel = document.querySelector("#mz-event-label");
+  const mapCaption = document.querySelector("#mz-map-caption");
+  const logCopy = document.querySelector("#mz-log-copy");
+  const metricNodes = {
+    power: document.querySelector("#mz-power"),
+    comfort: document.querySelector("#mz-comfort"),
+    wait: document.querySelector("#mz-wait"),
+    powerBar: document.querySelector("#mz-power-bar"),
+    comfortBar: document.querySelector("#mz-comfort-bar"),
+    waitBar: document.querySelector("#mz-wait-bar"),
+  };
+
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+  function deriveMetrics() {
+    const districtValues = Object.values(state.districts);
+    const lights = districtValues.filter((district) => district.light).length;
+    const walking = districtValues.filter((district) => district.priority === "walk").length;
+    const buses = districtValues.filter((district) => district.priority === "bus").length;
+    const calm = districtValues.filter((district) => district.priority === "calm").length;
+    const condition = conditions[state.event];
+    return {
+      lights,
+      power: clamp(24 + lights * 11 + buses * 5 + condition.power, 8, 99),
+      comfort: clamp(45 + lights * 5 + walking * 4 + calm * 3 + condition.comfort, 1, 99),
+      wait: clamp(13 - walking - buses * 2 + condition.wait, 1, 18),
+      condition,
+    };
+  }
+
+  function prioritySentence(district) {
+    if (district.priority === "bus") return "the fictional shuttle gets the clearest route";
+    if (district.priority === "calm") return "the quiet version of the block takes the lead";
+    return "walking gets the clearest route";
+  }
+
+  function render() {
+    const metrics = deriveMetrics();
+    document.querySelectorAll("[data-district-card]").forEach((card) => {
+      const id = card.getAttribute("data-district-card");
+      const district = state.districts[id];
+      card.classList.toggle("is-dark", !district.light);
+      const light = card.querySelector("[data-light]");
+      const priority = card.querySelector("[data-priority]");
+      light.checked = district.light;
+      priority.value = district.priority;
+    });
+    document.querySelectorAll("[data-map-district]").forEach((region) => {
+      const id = region.getAttribute("data-map-district");
+      region.classList.toggle("is-dark", !state.districts[id].light);
+    });
+    document.querySelectorAll("[data-event]").forEach((button) => {
+      const isActive = button.getAttribute("data-event") === state.event;
+      button.classList.toggle("is-active", isActive);
+      button.setAttribute("aria-pressed", String(isActive));
+    });
+
+    metricNodes.power.textContent = String(metrics.power);
+    metricNodes.comfort.textContent = String(metrics.comfort);
+    metricNodes.wait.textContent = String(metrics.wait);
+    metricNodes.powerBar.style.width = `${metrics.power}%`;
+    metricNodes.comfortBar.style.width = `${metrics.comfort}%`;
+    metricNodes.waitBar.style.width = `${clamp(100 - metrics.wait * 5, 10, 95)}%`;
+
+    const darkDistricts = Object.entries(state.districts)
+      .filter(([, district]) => !district.light)
+      .map(([id]) => districtNames[id]);
+    const activeDistricts = Object.entries(state.districts)
+      .filter(([, district]) => district.light)
+      .map(([id]) => districtNames[id]);
+    const notable = Object.entries(state.districts)
+      .filter(([, district]) => district.priority !== "walk")
+      .map(([id, district]) => `${districtNames[id]}: ${prioritySentence(district)}`);
+
+    eventLabel.textContent = metrics.condition.label;
+    mapCaption.textContent = darkDistricts.length
+      ? `${activeDistricts.length} fictional district${activeDistricts.length === 1 ? "" : "s"} lit; ${darkDistricts.join(" and ")} is resting.`
+      : "All four invented districts are awake.";
+    logCopy.textContent = `${metrics.condition.copy} ${notable.length ? notable.join("; ") + "." : "Every district defaults to a walkable loop."}`;
+    status.textContent = `${metrics.condition.label}: power ${metrics.power}, comfort ${metrics.comfort}, imagined walk/wait ${metrics.wait} minutes. Nothing outside this page changed.`;
+  }
+
+  document.querySelectorAll("[data-light]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const id = input.getAttribute("data-light");
+      state.districts[id].light = input.checked;
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-priority]").forEach((select) => {
+    select.addEventListener("change", () => {
+      const id = select.getAttribute("data-priority");
+      state.districts[id].priority = select.value;
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-event]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.event = button.getAttribute("data-event");
+      render();
+    });
+  });
+
+  document.querySelector("#mz-reset").addEventListener("click", () => {
+    state = cloneDefaults();
+    render();
+    status.textContent = "Fictional city reset. No record was sent or saved.";
+  });
+
+  document.querySelector("#mz-export").addEventListener("click", () => {
+    const metrics = deriveMetrics();
+    const scene = {
+      format: "mozville-fiction-scene/v1",
+      notice: "Fictional local simulation. Not a city record, plan, prediction, or real-system command.",
+      city: "Mozville",
+      condition: state.event,
+      districts: state.districts,
+      imaginedMetrics: {
+        powerDraw: metrics.power,
+        comfort: metrics.comfort,
+        walkWaitMinutes: metrics.wait,
+      },
+      exportedAt: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(scene, null, 2) + "\n"], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "mozville-fiction-scene.json";
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    status.textContent = "Fictional scene card downloaded locally. It contains the controls, invented meters, and an export timestamp from this page.";
+  });
+
+  render();
+})();
+
+</script>
+
+</body>
+</html>

@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en"><head>
+<meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; script-src &#x27;sha256-BLzVwNqSHo1FIMw3ivPNcQwD2WV77gBs2OlmtxIMSBA=&#x27; &#x27;sha256-IUbngSF6wjFKxTw8qENINqO5snoEy94Z0hA3fVbjL0Q=&#x27; &#x27;sha256-L454D3fX4X/6GSy5W8AP0acJJZeHtc41p9tKlD6Cd5Y=&#x27; &#x27;sha256-ToBV3O0aMGa3cWy7NP5TWCu0K003So9OFlTa2wleMEw=&#x27; &#x27;sha256-fMROrBmVg4ipl7h3i3V1K52kOqXPX8zz+8x88C1PqOk=&#x27;; style-src &#x27;unsafe-inline&#x27;; img-src data: blob:; font-src data:; media-src data: blob:; frame-src &#x27;self&#x27; data: blob:; connect-src &#x27;none&#x27;; worker-src &#x27;none&#x27;; object-src &#x27;none&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;"><meta name="referrer" content="no-referrer">
+<script nonce="__MOZCORP_NONCE__" data-moz-source="prelude.js">
+// Private station boundary. This code never receives Keeper identity or vault keys.
+(function (root) {
+  'use strict';
+  const protocol = 'doodle-mozcorp/v1', stationId = 'hope-lon';
+  const focusAnchors = [];
+  const preferenceKeys = new Set(['btw.mozmoji.fork.v1', 'btw.voodont.blind-backfeed.v1']);
+  const sessionLimits = {'btw.integrity.handoff.v1':700000,'btw-everywhen-fiction-cue-v1':4096};
+  const stations = new Set(['machine','recent','voodont','everywhen','mozville','friend-scrubber','integrity','swordfish','hope-lon','bug-world']);
+  const handlers = new Map(), pending = new Map(), outbound = [], dirtyPreferences = new Set();
+  const audioContexts = new Set(), wrappedAudio = new Map();
+  let token = null, sequence = 0, closed = false, lastDirty = null;
+  for(const name of ['AudioContext','webkitAudioContext']){
+    const native=root[name];if(typeof native!=='function')continue;
+    let wrapped=wrappedAudio.get(native);
+    if(!wrapped){wrapped=new Proxy(native,{construct(target,args,newTarget){const context=Reflect.construct(target,args,newTarget===wrapped?target:newTarget);audioContexts.add(context);return context;}});wrappedAudio.set(native,wrapped);}
+    try{root[name]=wrapped;}catch{}
+  }
+  function post(value) { root.parent.postMessage({protocol,stationId,...value}, '*'); }
+  function flush() { if (!token || closed) return; while(outbound.length) { const message=outbound.shift(); if(message.type!=='request'||pending.has(message.requestId))post({...message,token}); } }
+  function request(requestType, payload = {}) {
+    if (!['save','cloud','upgrades','open-original','open-link','news','hope','pref-set'].includes(requestType)) return Promise.reject(new Error('This station action is not supported.'));
+    if (closed) return Promise.reject(new Error('This station has closed.'));
+    const requestId = stationId+'-'+(++sequence);
+    return new Promise((resolve,reject)=>{
+      const timer=root.setTimeout(()=>{pending.delete(requestId);reject(new Error('The Keeper did not answer. Your work is still in this station.'));},20000);
+      pending.set(requestId,{resolve,reject,timer}); outbound.push({type:'request',requestId,requestType,payload}); flush();
+    });
+  }
+  function preferenceChanged(key,value) {
+    if (!preferenceKeys.has(key)) return;
+    dirtyPreferences.add(key);
+    if(token) request('pref-set',{key,value}).catch(()=>{});
+  }
+  function limitFor(kind,key){return kind==='local'&&preferenceKeys.has(key)?65536:Object.hasOwn(sessionLimits,key)?sessionLimits[key]:2000000;}
+  function store(kind) {
+    const map = new Map();
+    const api={
+      getItem(key){return map.get(String(key))??null;},
+      setItem(key,value){key=String(key);value=String(value);if(key.length>256||value.length>limitFor(kind,key))throw new Error('This station value is too large. Export a file to keep it.');if(!map.has(key)&&map.size>=128)throw new Error('This station memory is full.');let total=key.length+value.length;for(const [k,v]of map)if(k!==key)total+=k.length+v.length;if(total>8000000)throw new Error('This station memory is full. Export a file to keep it.');map.set(key,value);if(kind==='local')preferenceChanged(key,value);},
+      removeItem(key){key=String(key);map.delete(key);if(kind==='local')preferenceChanged(key,null);},
+      clear(){for(const key of map.keys())api.removeItem(key);},key(index){return [...map.keys()][index]??null;},
+      get length(){return map.size;}
+    };
+    return {api,map};
+  }
+  const local=store('local'),session=store('session');
+  const MozStore=Object.freeze({local:local.api,session:session.api,
+    snapshot(){return {local:Object.fromEntries(local.map),session:Object.fromEntries(session.map)};},
+    restore(value){
+      if(!value||typeof value!=='object')throw new Error('Invalid station memory.');
+      const changes=[];
+      for(const [which,target] of [['local',local],['session',session]]){
+        if(value[which]===undefined)continue;
+        if(!value[which]||typeof value[which]!=='object'||Array.isArray(value[which]))throw new Error('Invalid station memory.');
+        const entries=Object.entries(value[which]);if(entries.length>128)throw new Error('Too many station values.');
+        let total=0;for(const [key,text] of entries){if(key.length>256||typeof text!=='string'||text.length>limitFor(which,key))throw new Error('Invalid station value.');total+=key.length+text.length;}if(total>8000000)throw new Error('This station memory is full.');
+        changes.push({target,entries});
+      }
+      for(const {target,entries}of changes){target.map.clear();for(const [key,text]of entries)target.map.set(key,text);}
+    }
+  });
+  function navigate(next,options={}) {
+    if(!stations.has(next))throw new Error('Unknown MozCorp station.');
+    const transfer={};
+    const supplied=options.session||Object.fromEntries(session.map);
+    for(const [key,limit]of Object.entries(sessionLimits))if(Object.hasOwn(supplied,key)){if(typeof supplied[key]!=='string'||supplied[key].length>limit)throw new Error('Invalid station handoff.');transfer[key]=supplied[key];}
+    const anchor=typeof options.anchor==='string'&&/^[A-Za-z][\w-]{0,99}$/.test(options.anchor)?options.anchor:'';
+    outbound.push({type:'navigate',payload:{stationId:next,anchor,session:transfer}});flush();
+  }
+  function register(requestType,handler) {
+    if(!['capture','restore','cloud-restore','stop','checkpoint','focus'].includes(requestType)||typeof handler!=='function')throw new Error('Unknown station adapter.');
+    handlers.set(requestType,handler);return()=>handlers.delete(requestType);
+  }
+  // Station adapters override these narrow defaults after the original scripts.
+  register('capture',()=>{throw new Error('This private desk uses its own export controls and does not create Telephone project snapshots.');});
+  register('restore',()=>{throw new Error('This private desk does not accept generic Telephone project restoration.');});
+  register('checkpoint',()=>({editVersion:0}));
+  register('stop',async()=>{await Promise.all([...audioContexts].map(async context=>{if(context.state!=='closed')try{await context.suspend();}catch{}}));return{stopped:true,editVersion:0};});
+  register('focus',(value={})=>{
+    if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!['anchor','session'].includes(key)))throw new Error('Invalid station focus request.');
+    if(value.session!==undefined&&(!value.session||typeof value.session!=='object'||Array.isArray(value.session)||Object.keys(value.session).length))throw new Error('This private desk does not accept a transferred source or fiction cue.');
+    const anchor=value.anchor??'';if(typeof anchor!=='string'||(anchor&&!focusAnchors.includes(anchor)))throw new Error('Unknown station focus anchor.');
+    if(anchor){const target=root.document.getElementById(anchor);if(!target)throw new Error('This station focus target is unavailable.');target.scrollIntoView({block:'start',behavior:'auto'});}
+    return{focused:true,anchor,editVersion:0};
+  });
+  root.MozStore=MozStore;
+  function dirty(value){if(!value||!Number.isSafeInteger(value.editVersion)||value.editVersion<0)return;lastDirty=value.editVersion;if(token)post({type:'dirty',token,editVersion:lastDirty});}
+  root.MozHost=Object.freeze({navigate,request,register,dirty,audioContexts,get stationId(){return stationId;},get ready(){return token!==null;}});
+  root.addEventListener('message',event=>{
+    if(event.source!==root.parent)return;
+    const message=event.data;
+    if(!message||message.protocol!==protocol||message.stationId!==stationId)return;
+    if(message.type==='init'){
+      if(token!==null||typeof message.token!=='string'||!/^[a-fA-F0-9]{32}$/.test(message.token))return;
+      token=message.token;
+      for(const key of preferenceKeys){const text=message.preferences?.[key];if(typeof text==='string'&&text.length<=65536&&!dirtyPreferences.has(key))local.map.set(key,text);}
+      for(const [key,limit]of Object.entries(sessionLimits)){const text=message.session?.[key];if(typeof text==='string'&&text.length<=limit)session.map.set(key,text);}
+      root.dispatchEvent(new CustomEvent('mozcorp:init',{detail:{stationId}}));
+      for(const key of dirtyPreferences)request('pref-set',{key,value:local.api.getItem(key)}).catch(()=>{});
+      if(lastDirty!==null)post({type:'dirty',token,editVersion:lastDirty});
+      flush();return;
+    }
+    if(!token||message.token!==token)return;
+    if(message.type==='response'){
+      const job=pending.get(message.requestId);if(!job)return;pending.delete(message.requestId);root.clearTimeout(job.timer);
+      if(message.error){
+        const value=message.error,error=new Error(typeof value==='string'?value:typeof value.message==='string'?value.message:'The Keeper could not complete this action.');
+        if(value&&typeof value==='object'){
+          if(Number.isInteger(value.status)&&value.status>=400&&value.status<=599)error.status=value.status;
+          if(typeof value.code==='string'&&/^[A-Za-z0-9_.-]{1,80}$/.test(value.code))error.code=value.code;
+        }
+        job.reject(error);
+      }else job.resolve(message.result);return;
+    }
+    if(message.type==='request'&&typeof message.requestId==='string'&&message.requestId.length<=100){
+      const handler=handlers.get(message.requestType);
+      if(!handler){post({type:'response',token,requestId:message.requestId,error:'This station adapter is unavailable.'});return;}
+      Promise.resolve().then(()=>handler(message.payload)).then(result=>post({type:'response',token,requestId:message.requestId,result}),error=>post({type:'response',token,requestId:message.requestId,error:error?.message||'This station could not complete the action.'}));
+    }
+  });
+  root.document.addEventListener('click',event=>{
+    const link=event.target.closest?.('a');if(!link||link.hasAttribute('download'))return;
+    if(link.dataset.mozStation||link.dataset.mozOriginal||link.dataset.mozService){
+      event.preventDefault();
+      if(link.dataset.mozService==='upgrades')request('upgrades',{action:'open'}).catch(error=>root.alert(error.message));
+      else if(link.dataset.mozStation)navigate(link.dataset.mozStation,{anchor:link.dataset.mozAnchor||''});
+      else request('open-original',{path:link.dataset.mozOriginal,anchor:link.dataset.mozAnchor||''}).catch(error=>root.alert(error.message));
+      return;
+    }
+    // Opaque private frames cannot open popups. Only an actual click may ask the
+    // trusted parent to show an external URL for review; it never opens it here.
+    if(!event.isTrusted||event.defaultPrevented)return;
+    const raw=link.getAttribute('href');if(!raw||raw.startsWith('#'))return;
+    let url;try{url=new URL(raw,root.location.href);}catch{return;}
+    if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.href.length>4096)return;
+    if(link.target==='_blank'||url.origin!==root.location.origin){
+      event.preventDefault();request('open-link',{url:url.href}).catch(error=>root.alert(error.message));
+    }
+  });
+  function ready(){post({type:'ready'});const anchor='';if(anchor)root.document.getElementById(anchor)?.scrollIntoView({block:'start',behavior:'auto'});}
+  if(root.document.readyState==='loading')root.document.addEventListener('DOMContentLoaded',ready,{once:true});else root.setTimeout(ready,0);
+  root.addEventListener('pagehide',()=>{closed=true;outbound.length=0;for(const job of pending.values()){root.clearTimeout(job.timer);job.reject(new Error('This station has closed.'));}pending.clear();handlers.clear();for(const context of audioContexts)if(context.state!=='closed')context.suspend().catch(()=>{});audioContexts.clear();});
+})(window);
+
+</script><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b1723"><title>HOPE||LON · Swordfish interludes</title><link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4NCjxwYXRoIGQ9Ik0yMiAxOS4yNzI3QzIyIDIwLjc3OSAyMC43NzkgMjIgMTkuMjcyNyAyMkgxNC43MjczQzEzLjIyMSAyMiAxMiAyMC43NzkgMTIgMTkuMjcyN1YxMkgxOS4yNzI3QzIwLjc3OSAxMiAyMiAxMy4yMjEgMjIgMTQuNzI3M1YxOS4yNzI3WiIgZmlsbD0iIzY4QzRGRiIvPg0KPHBhdGggZD0iTTIwIDJDMjEuMTA0NiAyIDIyIDIuODk1NDMgMjIgNFY3QzIyIDguMTA0NTcgMjEuMTA0NiA5IDIwIDlIMTdDMTUuODk1NCA5IDE1IDguMTA0NTcgMTUgN1Y0QzE1IDIuODk1NDMgMTUuODk1NCAyIDE3IDJIMjBaIiBmaWxsPSIjMEM3OUQ4Ii8+DQo8cGF0aCBkPSJNNyAxNUM4LjEwNDU3IDE1IDkgMTUuODk1NCA5IDE3VjIwQzkgMjEuMTA0NiA4LjEwNDU3IDIyIDcgMjJINEMyLjg5NTQzIDIyIDIgMjEuMTA0NiAyIDIwVjE3QzIgMTUuODk1NCAyLjg5NTQzIDE1IDQgMTVIN1oiIGZpbGw9IiMwQzc5RDgiLz4NCjxwYXRoIGQ9Ik0xMiAxMkg0LjcyNzI3QzMuMjIxMDQgMTIgMiAxMC43NzkgMiA5LjI3MjczVjQuNzI3MjdDMiAzLjIyMTA0IDMuMjIxMDQgMiA0LjcyNzI3IDJIOS4yNzI3M0MxMC43NzkgMiAxMiAzLjIyMTA0IDEyIDQuNzI3MjdWMTJaIiBmaWxsPSIjMkU5RUZGIi8+DQo8L3N2Zz4NCg=="><style nonce="__MOZCORP_NONCE__">:root{color-scheme:dark;--bg:#0b1723;--panel:#122331;--line:#3b5664;--ink:#edf2ef;--muted:#b8cacd;--mint:#8ce6dc;--gold:#edc989}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:1rem/1.6 system-ui,sans-serif}button,input{font:inherit}a{color:var(--mint);text-underline-offset:4px}button{cursor:pointer}button:disabled{cursor:default;opacity:.45}button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid var(--mint);outline-offset:4px}h1,h2,p{margin-top:0}.hl-shell{max-width:1280px;padding:30px;margin:auto}.hl-header{display:flex;justify-content:space-between;align-items:center;gap:28px;border-bottom:1px solid var(--line);padding-bottom:22px}.hl-kicker{font:.75rem ui-monospace,monospace;letter-spacing:.1em;color:var(--muted);margin-bottom:12px}.hl-header h1{font:700 3rem/1 Georgia,serif;letter-spacing:.04em;margin:0}.hl-header h1 span{font-weight:400;color:var(--mint)}.hl-header nav{display:flex;gap:24px;font-size:.875rem}.hl-toolbar{display:flex;gap:24px;justify-content:space-between;align-items:center;padding:25px 0 15px}.hl-badge{display:inline-block;font:700 .75rem ui-monospace,monospace;letter-spacing:.08em;border:1px solid #6d9795;color:var(--mint);padding:6px 9px;border-radius:4px}.hl-toolbar p{color:var(--muted);font-size:.9375rem;margin:10px 0 0}.hl-switch{display:flex;align-items:center;gap:10px;font-size:.875rem;white-space:nowrap;min-height:44px}.hl-switch input{width:20px;height:20px;accent-color:var(--mint)}.hl-switch strong{color:var(--gold);min-width:55px}.hl-status{padding:12px 15px;background:#14343b;border:1px solid #3d7478;color:#c0e5e1;border-radius:5px;font-size:.875rem;margin-bottom:22px}.hl-status[data-error=true]{background:#392c27;border-color:#a3785d;color:#f4d6b8}.hl-layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:24px;align-items:start}.hl-sidebar{background:var(--panel);border:1px solid var(--line);padding:18px;border-radius:8px}.hl-sidehead{display:flex;justify-content:space-between;gap:15px;align-items:center}.hl-sidehead h2{font-size:1.0625rem;margin:0}.hl-sidehead span{font:.875rem ui-monospace,monospace;color:var(--mint)}.hl-small{font-size:.8125rem;color:var(--muted);line-height:1.6}.hl-seeds{display:grid;gap:8px;max-height:530px;overflow:auto;margin:18px -4px;padding:0 4px}.hl-seed{display:block;width:100%;border:1px solid #4a606a;background:#142c3a;color:var(--ink);padding:12px;text-align:left;border-radius:5px}.hl-seed[aria-pressed=true]{border-color:var(--mint);box-shadow:inset 3px 0 var(--mint);background:#1b3c45}.hl-seed strong{font-size:.9375rem;display:block;overflow-wrap:anywhere}.hl-seed span{font-size:.8125rem;display:block;color:#b4cace;margin-top:5px;overflow-wrap:anywhere}.hl-reader{background:#122431;border:1px solid #49636d;padding:35px 40px;border-radius:8px;min-width:0}.hl-chapter{font:.75rem/1.6 ui-monospace,monospace;letter-spacing:.06em;display:grid;gap:6px;color:var(--muted)}.hl-chapter strong{color:var(--gold)}.hl-reader h2{font:400 2rem/1.25 Georgia,serif;margin:22px 0 12px;overflow-wrap:anywhere}.hl-reader h2:focus{outline:2px solid var(--mint);outline-offset:6px}.hl-source{font-size:.8125rem;color:#b4d0d3;padding-bottom:19px;border-bottom:1px solid var(--line)}.hl-prose{font:1.1875rem/1.85 Georgia,"Times New Roman",serif;color:#ecf0ee;overflow-wrap:anywhere}.hl-prose p{margin-bottom:21px}.hl-prose p:first-child:first-letter{font-size:2rem;color:var(--gold);line-height:1}.hl-storybuttons{display:flex;gap:12px;flex-wrap:wrap;padding-top:8px}.hl-button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:1px solid #658d94;background:#1c3d4c;color:#e5f4f2;padding:9px 14px;border-radius:5px;font-size:.875rem;font-weight:650}.hl-button:hover{background:#2b4e59}.hl-primary{background:#225752;border-color:#87c9be}.hl-exit{font:.8125rem/1.6 ui-monospace,monospace;color:var(--muted);border-top:1px solid var(--line);padding-top:18px;margin:25px 0 0}.hl-footer{display:flex;justify-content:space-between;align-items:flex-start;gap:30px;padding:28px 0 0;margin-top:30px;border-top:1px solid var(--line)}.hl-footer h2{font-size:1.0625rem;margin-bottom:12px}.hl-footer>div{max-width:880px}.hl-footer p{font-size:.875rem;color:var(--muted);margin-bottom:9px}.hl-bins{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:15px}.hl-bins span{font:.75rem ui-monospace,monospace;color:#d7e2de;padding:5px 7px;border:1px solid #4c6a6f;border-radius:3px}.hl-clear{flex-shrink:0;border-color:#9c8167;background:#322d29;color:#f0d8bd}[hidden]{display:none!important}@media(max-width:950px){.hl-shell{padding:22px}.hl-layout{grid-template-columns:220px minmax(0,1fr);gap:16px}.hl-reader{padding:26px}.hl-reader h2{font-size:1.65rem}}@media(max-width:700px){.hl-shell{padding:18px}.hl-header{align-items:flex-start}.hl-header h1{font-size:2.4rem}.hl-header nav{flex-direction:column;gap:8px}.hl-kicker{max-width:250px;line-height:1.6}.hl-toolbar{align-items:flex-start}.hl-layout{grid-template-columns:1fr}.hl-seeds{display:flex;max-height:none;overflow-x:auto;padding-bottom:7px;margin:14px 0}.hl-seed{min-width:210px;max-width:260px}.hl-sidebar>.hl-small{margin:8px 0}.hl-reader{padding:23px}.hl-prose{font-size:1.125rem}.hl-footer{display:block}.hl-clear{margin-top:14px}}@media(max-width:420px){.hl-header,.hl-toolbar{flex-wrap:wrap}.hl-header nav{flex-direction:row;gap:20px}.hl-reader{padding:20px}.hl-storybuttons .hl-button{flex:1}.hl-switch{white-space:normal}}@media print{body{background:white;color:#111}.hl-header nav,.hl-toolbar,.hl-status,.hl-sidebar,.hl-storybuttons,.hl-clear{display:none}.hl-layout{display:block}.hl-reader{border:0;background:white;color:#111;padding:0}.hl-prose,.hl-source,.hl-exit,.hl-chapter,.hl-chapter strong,.hl-footer p,.hl-footer h2{color:#111}.hl-badge,.hl-bins span{color:#111}.hl-shell{padding:0}}
+</style></head>
+<body><main class="hl-shell">
+  <header class="hl-header"><div><p class="hl-kicker">BULLSHIT TELEPHONE WORLD · THE UNDERCURRENT</p><h1>HOPE<span>||</span>LON</h1></div><nav aria-label="World navigation"><a href="#" data-moz-station="swordfish">Swordfish desk</a><a href="#" data-moz-station="machine">World</a></nav></header>
+  <div class="hl-toolbar"><div><span class="hl-badge">FICTIONAL INTERLUDES</span><p>Swordfish’s persona and solved cases arrive here as story seeds.</p></div><label class="hl-switch"><input id="hlEnabled" type="checkbox" disabled> Quiet feed <strong id="hlFeedState">…</strong></label></div>
+  <div id="hlStatus" class="hl-status" role="status">Opening your private story feed…</div>
+  <div class="hl-layout"><aside class="hl-sidebar" aria-labelledby="hlSeedsTitle"><div class="hl-sidehead"><h2 id="hlSeedsTitle">Arrivals</h2><span id="hlCount">0</span></div><p class="hl-small">Newest seeds first. The current persona updates in place; repeated solved cases appear once.</p><div id="hlSeeds" class="hl-seeds"></div><button id="hlRefresh" class="hl-button" type="button">Refresh arrivals</button></aside>
+    <article class="hl-reader" aria-labelledby="hlStoryTitle"><div class="hl-chapter"><span>HOPE||LON · THE FAMILY BEFORE THE STORY</span><strong>A FICTIONAL SIDE STORY</strong></div><h2 id="hlStoryTitle" tabindex="-1">A space in the margin</h2><p id="hlStorySource" class="hl-source">Waiting for a Swordfish seed</p><div id="hlStoryText" class="hl-prose"><p>Open Swordfish to invent a persona, or solve one of its clue cases. The quiet feed will bring that fictional material here.</p></div><div class="hl-storybuttons"><button id="hlRetell" class="hl-button" type="button" disabled>Another telling</button><button id="hlDownload" class="hl-button hl-primary" type="button" disabled>Save interlude .TXT</button></div><p class="hl-exit">The interlude ends here. Its generated text does not feed itself back into the story.</p></article>
+  </div>
+  <footer class="hl-footer"><div><h2>The original story keeps its categories</h2><div class="hl-bins"><span>EXPERIENCED</span><span>REMEMBERED</span><span>DOCUMENTED</span><span>ALLEGED</span><span>UNKNOWN</span></div><p>Swordfish stays in this separate fictional lane. Its real-question notebook, friend-review records, and personal-history material are not read by this generator.</p><p class="hl-small">Fiction seeds are saved to your private story feed. This view shows the latest 50 arrivals. Pausing keeps existing seeds; clearing removes them and pauses new arrivals.</p></div><button id="hlClear" class="hl-button hl-clear" type="button" disabled>Clear fiction feed</button></footer>
+</main><script nonce="__MOZCORP_NONCE__" data-moz-source="swordfish-cases.js">
+(function (root) {
+  'use strict';
+  root.SWORD_CASES = [
+    {
+      id: 'moon-lanterns', title: 'The Wandering Moon Lanterns', question: 'Why did crate ML-7 miss the Lantern Stall?', intro: 'A lantern delivery has wandered off schedule. Your story circle has six scraps of evidence. Start with the source of the rumor.',
+      hypotheses: [{id:'h1',label:'The bubble chute sent it to the Tide Shed.'},{id:'h2',label:'An outdated delivery guide sent it to the Lounge Store.'},{id:'h3',label:'It was never collected from the workshop.'}],
+      clues: [
+        {id:'lantern-1',source:'Shrimp Circular, ninth forwarding',title:'Nine copies, one rumor',text:'“The bubble chute swallowed the lantern delivery!” Nine messages repeat this claim. All trace to the same dispatch note.',kind:'copy',links:['lantern-3']},
+        {id:'lantern-2',source:'Reef transport map',title:'Two delivery routes',text:'The bubble chute runs from the workshop to the Tide Shed. Couriers also carry crates directly to reef doors.',kind:'context',links:[]},
+        {id:'lantern-3',source:'Original dispatch note',title:'A question became a claim',text:'“ML-7 hasn’t reached the Lantern Stall. Could it be in the bubble chute?” The writer recorded no chute inspection.',kind:'primary',links:[]},
+        {id:'lantern-4',source:'Glowworm Workshop manifest',title:'The intended address',text:'Crate ML-7: destination LS. Address codes follow the CURRENT delivery guide. Collected by hand courier at dawn.',kind:'primary',links:[]},
+        {id:'lantern-5',source:'Delivery guide revision card',title:'One code changed',text:'PREVIOUS guide: LS means Lounge Store. CURRENT guide: LS means Lantern Stall; Lounge Store now uses JL.',kind:'context',links:[]},
+        {id:'lantern-6',source:'Courier’s signed delivery record',title:'Where ML-7 landed',text:'ML-7 delivered intact to Lounge Store. Destination code read: LS. Guide used: PREVIOUS.',kind:'primary',links:[]}
+      ],
+      answer:'h2',essentialClueIds:['lantern-4','lantern-5','lantern-6'],resolution:'The manifest used the current code for Lantern Stall, but the courier decoded it with the previous guide and delivered ML-7 to Lounge Store. The repeated chute story was speculation.',remainingUnknown:'Why the courier still had the old guide is not recorded.'
+    },
+    {
+      id:'fifth-verse',title:'The Missing Fifth Verse',question:'What happened to verse five in archive copy A-12?',intro:'A poem appears to have lost its ending. A damp desk and a loud headline have already started a story of their own.',
+      hypotheses:[{id:'h1',label:'It remained beneath a tied paper flap.'},{id:'h2',label:'It was filed in a separate appendix.'},{id:'h3',label:'A splash washed its ink away.'}],
+      clues:[
+        {id:'verse-1',source:'Moth Post, recopied notice',title:'A very soggy headline',text:'“Tide washes away fifth verse!” Three noticeboards carry identical copies. Their only source is one desk notebook.',kind:'copy',links:['verse-3']},
+        {id:'verse-2',source:'Shell Archive visitor guide',title:'Books with extra corners',text:'Some archive poems use loose appendices; others print additional verses on folding panels.',kind:'context',links:[]},
+        {id:'verse-3',source:'Original desk notebook',title:'What the reader actually checked',text:'“Couldn’t find verse five in A-12’s main pages. Damp patch on desk.” The reader did not inspect appendices or folded panels.',kind:'primary',links:[]},
+        {id:'verse-4',source:'Printer’s verse register',title:'A distinctive beginning',text:'A-12’s fifth verse has six lines. Its unique opening is “Sweep the moon with fennel.”',kind:'primary',links:[]},
+        {id:'verse-5',source:'A-12 binding diagram',title:'The moon flap',text:'A moon-shaped flap is tied against the back cover. Its underside cannot be seen while the cord remains tied.',kind:'context',links:[]},
+        {id:'verse-6',source:'Archivist’s inspection record',title:'Under the paper moon',text:'Untied A-12’s flap. Its underside holds six fully legible lines beginning “Sweep the moon with fennel.”',kind:'primary',links:[]}
+      ],
+      answer:'h1',essentialClueIds:['verse-4','verse-6'],resolution:'The text beneath the flap matches the register’s fifth verse. It was concealed by the binding, with its ink intact. The damp desk did not establish damage.',remainingUnknown:'Who last tied the flap, and when, remain unknown.'
+    },
+    {
+      id:'breakfast-bell',title:'The Bell That Missed Breakfast',question:'Why did breakfast begin before the beetle band’s scheduled bell?',intro:'Porridge arrived before the chime. The leaflets say the bell is broken. Check what each witness actually observed.',
+      hypotheses:[{id:'h1',label:'The bell rope had detached.'},{id:'h2',label:'The breakfast cue had been removed.'},{id:'h3',label:'The kitchen clock was six minutes fast.'}],
+      clues:[
+        {id:'bell-1',source:'Leaflet chain, sixth reprint',title:'An untested diagnosis',text:'“Breakfast bell broken!” Every leaflet copies a claim derived from the kitchen notebook. None reports inspecting the bell.',kind:'copy',links:['bell-3']},
+        {id:'bell-2',source:'Acorn Hall service handbook',title:'Separate clocks',text:'Kitchen staff serve at eight on their kitchen clock. The bell follows the grove clock. Neither clock controls the other.',kind:'context',links:[]},
+        {id:'bell-3',source:'Original kitchen notebook',title:'Breakfast without a chime',text:'“Kitchen clock reached 08:00. Served breakfast. Hadn’t heard the breakfast bell yet.”',kind:'primary',links:[]},
+        {id:'bell-4',source:'That morning’s approved bell schedule',title:'The cue still existed',text:'Breakfast bell: 08:00, grove time. No cancellation or schedule change.',kind:'primary',links:[]},
+        {id:'bell-5',source:'Simultaneous clock-check record',title:'Two readings, one moment',text:'At the moment breakfast was served, the kitchen clock read 08:00 and the verified grove clock read 07:54.',kind:'primary',links:[]},
+        {id:'bell-6',source:'Bell attendant’s strike log',title:'The later chime',text:'Breakfast bell rang normally at 08:00 grove time. Two beetle ushers heard it; the rope remained attached.',kind:'primary',links:[]}
+      ],
+      answer:'h3',essentialClueIds:['bell-4','bell-5','bell-6'],resolution:'Breakfast began at 07:54 grove time because the kitchen clock was six minutes ahead. The bell then rang at its scheduled 08:00.',remainingUnknown:'Why the kitchen clock was fast is not established by these records.'
+    }
+  ];
+})(globalThis);
+
+</script><script nonce="__MOZCORP_NONCE__" data-moz-source="swordfish-core.js">
+(function (root) {
+  'use strict';
+  const VERSION = 'BTW-SWORDFISH-1', FILE_LIMIT = 2000000;
+  const text = (value, max = 2000) => typeof value === 'string' ? value.normalize('NFC').trim().slice(0, max) : '';
+  const themes = ['deep', 'rainbow', 'fire'];
+  const pronouns = ['they/them', 'she/her', 'he/him', ''];
+  const choose = (values, random) => values[Math.min(values.length - 1, Math.max(0, Math.floor(random() * values.length)))];
+  function generateProfile(random = Math.random) {
+    const name = choose(['Quill Current', 'Mica Moonwake', 'Ripple Finch', 'Nori Nightlight', 'Pip Starling', 'Echo Bubblewick', 'Clover Drift', 'Indigo Sprat'], random);
+    return { name, pronouns: choose(pronouns.slice(0, 3), random), role: choose(['Keeper of misplaced clues', 'Tidepool archive detective', 'Bug World field librarian', 'Rainbow relay fact finder', 'Curator of unfinished questions'], random), place: choose(['Lantern Reef', 'Prism Harbor', 'Mosslight Pier', 'The Primordial Pool'], random), bio: choose(['I collect original sources, spare buttons, and questions with no answer yet.', 'Tracing the story one clue at a time. A rumor gets a question mark.', 'Long bill. Short tolerance for missing citations. Excellent at finding lost soup.'], random), theme: choose(themes, random) };
+  }
+  function profile(value = {}) {
+    if (!value || typeof value !== 'object') value = {};
+    return { name: text(value.name, 60) || 'Quill Current', pronouns: pronouns.includes(value.pronouns) ? value.pronouns : 'they/them', role: text(value.role, 100) || 'Tidepool archive detective', place: text(value.place, 100) || 'Lantern Reef', bio: text(value.bio, 350), theme: themes.includes(value.theme) ? value.theme : 'deep' };
+  }
+  function getCase(id) { return root.SWORD_CASES.find(item => item.id === id) || root.SWORD_CASES[0]; }
+  function newGame(id) { return { caseId: getCase(id).id, revealed: 1, pinned: [], choice: 'unknown', evaluated: false }; }
+  function game(value = {}) {
+    if (!value || typeof value !== 'object') value = {};
+    const story = getCase(value.caseId), revealed = Number.isInteger(value.revealed) ? Math.max(1, Math.min(story.clues.length, value.revealed)) : 1;
+    const visible = new Set(story.clues.slice(0, revealed).map(c => c.id));
+    return { caseId: story.id, revealed, pinned: [...new Set(Array.isArray(value.pinned) ? value.pinned.filter(id => visible.has(id)) : [])], choice: story.hypotheses.some(h => h.id === value.choice) ? value.choice : 'unknown', evaluated: value.evaluated === true };
+  }
+  function evaluate(value) {
+    const state = game(value), story = getCase(state.caseId);
+    if (state.choice === 'unknown') return { kind: 'unknown', title: 'Question remains open', detail: 'You have left the answer unknown. Follow the original records and select the clues that support a specific explanation.' };
+    const complete = story.essentialClueIds.every(id => state.pinned.includes(id));
+    if (!complete) return { kind: 'unknown', title: 'Not established by your selected evidence', detail: state.revealed < story.clues.length ? 'More of the case is still available. Uncover another clue, then pin the records that connect the event to an explanation.' : 'Re-read the original records and pin the evidence needed to support the answer. Repeated claims do not add another independent source.' };
+    if (state.choice !== story.answer) return { kind: 'conflict', title: 'This explanation conflicts with the records', detail: 'Your selected evidence contains a different sequence of events. Compare the timestamps, item labels, and direct observations, then revise the explanation.' };
+    return { kind: 'resolved', title: 'Resolved inside this fictional case', detail: story.resolution, remaining: story.remainingUnknown };
+  }
+  function nextClue(value) { const state = game(value), story = getCase(state.caseId); return { ...state, revealed: Math.min(story.clues.length, state.revealed + 1), evaluated: false }; }
+  function sourceUrl(value) {
+    const raw = typeof value === 'string' ? value.trim() : ''; if (!raw) return '';
+    if (raw.length > 2000) throw new Error('Source URLs must fit within 2,000 characters. The address has not been shortened.');
+    if (/[\u0000-\u0020\u007f]/.test(raw)) throw new Error('Source links cannot contain spaces or control characters.');
+    let url; try { url = new URL(/^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : 'https://' + raw); } catch { throw new Error('Use a complete HTTP or HTTPS source address.'); }
+    if (!['https:', 'http:'].includes(url.protocol) || !url.hostname || url.username || url.password) throw new Error('Use an HTTP or HTTPS source link without login details in the address.');
+    if (url.href.length > 2000) throw new Error('This source URL exceeds 2,000 characters after URL encoding. The address has not been shortened.');
+    return url.href;
+  }
+  function source(value, id) {
+    if (!value || typeof value !== 'object') throw new Error('This source note could not be read.');
+    const label = text(value.label, 160), note = text(value.note, 2000), url = sourceUrl(value.url);
+    if (!label || (!note && !url)) throw new Error('Add a source name and either a link or an observation.');
+    return { id, label, note, url, relation: ['supports', 'challenges', 'context'].includes(value.relation) ? value.relation : 'context', verification: 'NOT VERIFIED' };
+  }
+  function notebook(value = {}) {
+    if (!value || typeof value !== 'object') value = {};
+    if (Array.isArray(value.sources) && value.sources.length > 100) throw new Error('A notebook can contain up to 100 source notes.');
+    return { question: text(value.question, 500), answer: text(value.answer, 3000), sources: Array.isArray(value.sources) ? value.sources.map((s, i) => source(s, 'restored-source-' + i)) : [] };
+  }
+  function start() { return { profile: profile(generateProfile()), game: newGame(), notebook: notebook(), mode: 'story' }; }
+  function snapshot(state) { return { format: VERSION, savedAt: new Date().toISOString(), profileKind: 'FICTIONAL GAME PROP — NOT A FACEBOOK ACCOUNT', researchScope: 'User-entered source notes. NOT VERIFIED by this app. No automatic fact finding or identity verification.', ...normalize(state) }; }
+  function normalize(value) { return { profile: profile(value.profile), game: game(value.game), notebook: notebook(value.notebook), mode: value.mode === 'notebook' ? 'notebook' : 'story' }; }
+  function restore(raw) {
+    if (typeof raw !== 'string' || raw.length > FILE_LIMIT || new TextEncoder().encode(raw).byteLength > FILE_LIMIT) throw new Error('Choose a Swordfish case file under 2 MB.');
+    let value; try { value = JSON.parse(raw); } catch { throw new Error('This file is not complete JSON.'); }
+    if (!value || value.format !== VERSION) throw new Error('Choose a saved Swordfish case file.');
+    return normalize(value);
+  }
+  function profileText(value) {
+    const p = profile(value);
+    return ['FICTIONAL PROFILE · SWORDFISH MODE', 'GAME PROP — NOT A FACEBOOK ACCOUNT', '', 'Invented name: ' + p.name, 'Pronouns: ' + (p.pronouns || 'Not specified'), 'Fictional role: ' + p.role, 'Fictional hometown: ' + p.place, '', p.bio, '', 'Created for Bullshit Telephone World. This character is invented and cannot contact people.'].join('\n');
+  }
+  root.SwordfishCore = Object.freeze({ VERSION, FILE_LIMIT, text, generateProfile, profile, getCase, newGame, game, evaluate, nextClue, sourceUrl, source, notebook, start, snapshot, restore, profileText });
+})(globalThis);
+
+</script><script nonce="__MOZCORP_NONCE__" data-moz-source="hope-story.js">
+(function (root) {
+  'use strict';
+  function render(seed, variant = 0) {
+    if (!seed || seed.scope !== 'FICTIONAL' || seed.version !== 1 || !['persona','case'].includes(seed.kind)) throw new Error('Only fictional Swordfish seeds can enter this interlude.');
+    const p = root.SwordfishCore.profile(seed.profile), n = ((Number(variant) || 0) % 3 + 3) % 3;
+    const openings = [
+      'The cursor blinked beside the unfinished chapter. In the margin, a small invented world had room for one more arrival.',
+      'A narrow strip of blue light appeared at the edge of the page. The story left a space there, just wide enough for another question.',
+      'Between one paragraph and the next, the tide changed. A fictional visitor waited until the page was ready.'
+    ];
+    const introduction = p.name + ' arrived from ' + (p.place || 'an unnamed fictional harbor') + ', carrying the title “' + (p.role || 'finder of questions') + '.”' + (p.bio ? ' The invented profile read: “' + p.bio + '”' : ' The rest of the profile was still an open space.');
+    let title, paragraphs, source;
+    if (seed.kind === 'case') {
+      const story = root.SWORD_CASES.find(c => c.id === seed.caseId); if (!story) throw new Error('This authored case is not in the Swordfish catalog.');
+      title = p.name + ' and ' + story.title;
+      paragraphs = [openings[n],introduction,'The question waiting in the margin was simple: ' + story.question + ' '+p.name+' pinned the original records beside the repeated claim and followed what the records actually established.',story.resolution,'One space remained deliberately unfilled: '+story.remainingUnknown+' '+p.name+' left it open. The interlude could end without pretending every answer had arrived.'];
+      source = 'Solved authored case · ' + story.title;
+    } else {
+      title = 'A visitor in the margin: ' + p.name;
+      const paths = ['Unifin offered a place at the table. Priz brought a ribbon to mark the first clue. Aurel kept a light over the part of the map nobody had filled in yet.','Priz set three empty cards on the desk: a question, an observation, and a place to write what remained unknown. Unifin waited to hear which one would come first.','Aurel opened the archive window. Unifin carried in a dry notebook, and Priz found a pencil with enough colors to tell several stories apart.'];
+      paragraphs = [openings[n],introduction,paths[n],p.name+' wrote a first line: “Let me check where that story started.” Beyond the margin, the chapter continued in its own voice. The invented visitor asked for a side story, and the page made room.'];
+      source = 'Fictional Swordfish profile';
+    }
+    return {title,paragraphs,source,scope:'FICTIONAL INTERLUDE',text:['HOPE||LON — FICTIONAL INTERLUDE',title,'',...paragraphs.flatMap(p=>[p,'']),'SOURCE: '+source,'Personal-history bins remain separate: EXPERIENCED · REMEMBERED · DOCUMENTED · ALLEGED · UNKNOWN.','STORY EXIT: this generated passage is not returned as a story seed.'].join('\n')};
+  }
+  root.HopeStory = Object.freeze({render});
+})(globalThis);
+
+</script><script nonce="__MOZCORP_NONCE__" data-moz-source="hope-lon.js">
+(function () {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  let feed = {scope:'',generation:0,enabled:false,total:0,seeds:[]}, selected = '', variant = 0, current = null, loading = false, changing = false, requestVersion = 0, refreshNeeded = false;
+  function status(message,error = false) { $('hlStatus').textContent = message; $('hlStatus').dataset.error = String(error); }
+  function controls() { $('hlEnabled').checked=feed.enabled; $('hlEnabled').disabled=!feed.scope||loading||changing; $('hlFeedState').textContent=feed.scope?(feed.enabled?'ON':'PAUSED'):'…'; $('hlRefresh').disabled=loading||changing; $('hlClear').disabled=!feed.scope||loading||changing; }
+  async function request(body) { return await window.MozHost.request('hope',body ? {...body,scope:feed.scope,generation:feed.generation} : {action:'read'});
+  }
+  function renderStory(focus=false) {
+    const row=feed.seeds.find(x=>x.seedKey===selected); current=null; $('hlStoryText').replaceChildren();
+    if(row){try{current=window.HopeStory.render(row.seed,variant);}catch(error){status(error.message,true);}}
+    $('hlStoryTitle').textContent=current?.title||'A space in the margin'; $('hlStorySource').textContent=current?current.source+' · FICTIONAL': 'Waiting for a Swordfish seed';
+    const paragraphs=current?.paragraphs||['Open Swordfish to invent a persona, or solve one of its clue cases. The quiet feed will bring that fictional material here.'];
+    for(const words of paragraphs){const p=document.createElement('p');p.textContent=words;$('hlStoryText').append(p);}
+    $('hlRetell').disabled=!current; $('hlDownload').disabled=!current;if(focus)$('hlStoryTitle').focus({preventScroll:true});
+  }
+  function renderList() {
+    const list=$('hlSeeds');list.replaceChildren();$('hlCount').textContent=feed.seeds.length===feed.total?String(feed.total):feed.seeds.length+' of '+feed.total;
+    if(!feed.seeds.length){const p=document.createElement('p');p.className='hl-small';p.textContent='No fiction seeds yet.';list.append(p);}
+    for(const row of feed.seeds){const b=document.createElement('button');b.type='button';b.className='hl-seed';b.setAttribute('aria-pressed',String(row.seedKey===selected));const title=document.createElement('strong'),detail=document.createElement('span');title.textContent=row.seed.profile.name;detail.textContent=row.seed.kind==='case'?'Solved case · '+(window.SWORD_CASES.find(c=>c.id===row.seed.caseId)?.title||'Unknown case'):'Fictional persona';b.append(title,detail);b.addEventListener('click',()=>{selected=row.seedKey;variant=0;renderList();renderStory(true);});list.append(b);}
+  }
+  function accept(value) {
+    if(typeof value.scope!=='string'||!Number.isSafeInteger(value.generation)||!Array.isArray(value.seeds)||typeof value.enabled!=='boolean')throw new Error('The story feed response could not be read.');
+    if(feed.scope!==value.scope){selected='';variant=0;}if(feed.scope===value.scope&&value.generation<feed.generation)return;
+    feed={scope:value.scope,generation:value.generation,enabled:value.enabled,total:Number(value.total)||0,seeds:value.seeds.filter(row=>row&&typeof row.seedKey==='string'&&row.seed?.scope==='FICTIONAL'&&row.seed?.profile&&typeof row.seed.profile.name==='string').slice(0,50)};
+    if(!feed.seeds.some(x=>x.seedKey===selected)){selected=feed.seeds[0]?.seedKey||'';variant=0;}controls();renderList();renderStory();
+  }
+  function clearStaleSession(error){if(error.status!==401&&error.status!==409)return;feed={scope:'',generation:0,enabled:false,total:0,seeds:[]};selected='';current=null;renderList();renderStory();controls();}
+  async function refresh() {
+    const token=++requestVersion;
+    if(loading||changing){refreshNeeded=true;return;}
+    refreshNeeded=false;loading=true;controls();
+    try{const value=await request();if(token!==requestVersion||refreshNeeded)return;accept(value);status(feed.enabled?'Quiet feed ON · fictional arrivals become interludes here.':'Quiet feed PAUSED · existing interludes remain available.');}
+    catch(error){if(token===requestVersion&&!refreshNeeded){clearStaleSession(error);status(error.message+' Use Refresh arrivals to try again.',true);}}
+    finally{loading=false;controls();if(refreshNeeded)await refresh();}
+  }
+  $('hlRefresh').addEventListener('click',refresh);
+  $('hlRetell').addEventListener('click',()=>{variant=(variant+1)%3;renderStory();status('Another telling from the same fiction seed. No new seed was added.');});
+  $('hlDownload').addEventListener('click',()=>{if(!current)return;const url=URL.createObjectURL(new Blob([current.text],{type:'text/plain;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download='hope-lon-fictional-interlude.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);status('Fictional interlude saved with its source and scope label.');});
+  async function change(body) {
+    if(changing||loading||!feed.scope)return;changing=true;const token=++requestVersion;controls();
+    try{const value=await request(body);if(token!==requestVersion||refreshNeeded)return;accept(value);status(body.action==='clear'?'Fiction feed cleared and paused. Delayed seeds from before the clear cannot refill it.':feed.enabled?'Quiet feed ON. New fictional play can add seeds.':'Quiet feed PAUSED. Existing seeds are kept.');}
+    catch(error){if(token===requestVersion&&!refreshNeeded){clearStaleSession(error);status(error.message+' Refresh before trying again.',true);}}
+    finally{changing=false;controls();if(refreshNeeded)await refresh();}
+  }
+  $('hlEnabled').addEventListener('change',()=>change({action:'settings',enabled:$('hlEnabled').checked}));
+  $('hlClear').addEventListener('click',()=>{if(confirm('Clear the saved fictional Swordfish seeds and pause new arrivals? This does not clear your local Swordfish notebook, friend-review records, or original HOPE story.'))change({action:'clear'});});
+  controls();renderList();renderStory();status('Browser story feed ready. Choose Refresh arrivals to open its local state, then choose whether fictional arrivals are enabled.');
+})();
+
+</script>
+</body></html>

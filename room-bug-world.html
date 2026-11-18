@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; script-src &#x27;sha256-5BYojQN3QO45VwmF+PPyAXD576gUEl7FbiCViFIethw=&#x27; &#x27;sha256-ADBpUMy7L91vPYDYYbtrmxD2Oi5kxwPY13YmI9n1+Sk=&#x27; &#x27;sha256-DkIbGc3WFthXcQovmvtp6bQevCdBh2qIBvJ9bT27BpM=&#x27; &#x27;sha256-fNTH69fyLwsNBDB4GxphT7MohHAuNzSFhHIwrd0cvrY=&#x27; &#x27;sha256-oqDJlL07cSBjE+sUIk5EmQv57cLz73DhWUbpGmj0CHs=&#x27; &#x27;sha256-tceOwPLg9KfxKOFj/bgIstdD/0e7G3JSaO9Cu3JFqe8=&#x27;; style-src &#x27;unsafe-inline&#x27;; img-src data: blob:; font-src data:; media-src data: blob:; frame-src &#x27;self&#x27; data: blob:; connect-src &#x27;none&#x27;; worker-src &#x27;none&#x27;; object-src &#x27;none&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;"><meta name="referrer" content="no-referrer">
+<script nonce="__MOZCORP_NONCE__" data-moz-source="prelude.js">
+// Private station boundary. This code never receives Keeper identity or vault keys.
+(function (root) {
+  'use strict';
+  const protocol = 'doodle-mozcorp/v1', stationId = 'bug-world';
+  const focusAnchors = [];
+  const preferenceKeys = new Set(['btw.mozmoji.fork.v1', 'btw.voodont.blind-backfeed.v1']);
+  const sessionLimits = {'btw.integrity.handoff.v1':700000,'btw-everywhen-fiction-cue-v1':4096};
+  const stations = new Set(['machine','recent','voodont','everywhen','mozville','friend-scrubber','integrity','swordfish','hope-lon','bug-world']);
+  const handlers = new Map(), pending = new Map(), outbound = [], dirtyPreferences = new Set();
+  const audioContexts = new Set(), wrappedAudio = new Map();
+  let token = null, sequence = 0, closed = false, lastDirty = null;
+  for(const name of ['AudioContext','webkitAudioContext']){
+    const native=root[name];if(typeof native!=='function')continue;
+    let wrapped=wrappedAudio.get(native);
+    if(!wrapped){wrapped=new Proxy(native,{construct(target,args,newTarget){const context=Reflect.construct(target,args,newTarget===wrapped?target:newTarget);audioContexts.add(context);return context;}});wrappedAudio.set(native,wrapped);}
+    try{root[name]=wrapped;}catch{}
+  }
+  function post(value) { root.parent.postMessage({protocol,stationId,...value}, '*'); }
+  function flush() { if (!token || closed) return; while(outbound.length) { const message=outbound.shift(); if(message.type!=='request'||pending.has(message.requestId))post({...message,token}); } }
+  function request(requestType, payload = {}) {
+    if (!['save','cloud','upgrades','open-original','open-link','news','hope','pref-set'].includes(requestType)) return Promise.reject(new Error('This station action is not supported.'));
+    if (closed) return Promise.reject(new Error('This station has closed.'));
+    const requestId = stationId+'-'+(++sequence);
+    return new Promise((resolve,reject)=>{
+      const timer=root.setTimeout(()=>{pending.delete(requestId);reject(new Error('The Keeper did not answer. Your work is still in this station.'));},20000);
+      pending.set(requestId,{resolve,reject,timer}); outbound.push({type:'request',requestId,requestType,payload}); flush();
+    });
+  }
+  function preferenceChanged(key,value) {
+    if (!preferenceKeys.has(key)) return;
+    dirtyPreferences.add(key);
+    if(token) request('pref-set',{key,value}).catch(()=>{});
+  }
+  function limitFor(kind,key){return kind==='local'&&preferenceKeys.has(key)?65536:Object.hasOwn(sessionLimits,key)?sessionLimits[key]:2000000;}
+  function store(kind) {
+    const map = new Map();
+    const api={
+      getItem(key){return map.get(String(key))??null;},
+      setItem(key,value){key=String(key);value=String(value);if(key.length>256||value.length>limitFor(kind,key))throw new Error('This station value is too large. Export a file to keep it.');if(!map.has(key)&&map.size>=128)throw new Error('This station memory is full.');let total=key.length+value.length;for(const [k,v]of map)if(k!==key)total+=k.length+v.length;if(total>8000000)throw new Error('This station memory is full. Export a file to keep it.');map.set(key,value);if(kind==='local')preferenceChanged(key,value);},
+      removeItem(key){key=String(key);map.delete(key);if(kind==='local')preferenceChanged(key,null);},
+      clear(){for(const key of map.keys())api.removeItem(key);},key(index){return [...map.keys()][index]??null;},
+      get length(){return map.size;}
+    };
+    return {api,map};
+  }
+  const local=store('local'),session=store('session');
+  const MozStore=Object.freeze({local:local.api,session:session.api,
+    snapshot(){return {local:Object.fromEntries(local.map),session:Object.fromEntries(session.map)};},
+    restore(value){
+      if(!value||typeof value!=='object')throw new Error('Invalid station memory.');
+      const changes=[];
+      for(const [which,target] of [['local',local],['session',session]]){
+        if(value[which]===undefined)continue;
+        if(!value[which]||typeof value[which]!=='object'||Array.isArray(value[which]))throw new Error('Invalid station memory.');
+        const entries=Object.entries(value[which]);if(entries.length>128)throw new Error('Too many station values.');
+        let total=0;for(const [key,text] of entries){if(key.length>256||typeof text!=='string'||text.length>limitFor(which,key))throw new Error('Invalid station value.');total+=key.length+text.length;}if(total>8000000)throw new Error('This station memory is full.');
+        changes.push({target,entries});
+      }
+      for(const {target,entries}of changes){target.map.clear();for(const [key,text]of entries)target.map.set(key,text);}
+    }
+  });
+  function navigate(next,options={}) {
+    if(!stations.has(next))throw new Error('Unknown MozCorp station.');
+    const transfer={};
+    const supplied=options.session||Object.fromEntries(session.map);
+    for(const [key,limit]of Object.entries(sessionLimits))if(Object.hasOwn(supplied,key)){if(typeof supplied[key]!=='string'||supplied[key].length>limit)throw new Error('Invalid station handoff.');transfer[key]=supplied[key];}
+    const anchor=typeof options.anchor==='string'&&/^[A-Za-z][\w-]{0,99}$/.test(options.anchor)?options.anchor:'';
+    outbound.push({type:'navigate',payload:{stationId:next,anchor,session:transfer}});flush();
+  }
+  function register(requestType,handler) {
+    if(!['capture','restore','cloud-restore','stop','checkpoint','focus'].includes(requestType)||typeof handler!=='function')throw new Error('Unknown station adapter.');
+    handlers.set(requestType,handler);return()=>handlers.delete(requestType);
+  }
+  // Station adapters override these narrow defaults after the original scripts.
+  register('capture',()=>{throw new Error('This private desk uses its own export controls and does not create Telephone project snapshots.');});
+  register('restore',()=>{throw new Error('This private desk does not accept generic Telephone project restoration.');});
+  register('checkpoint',()=>({editVersion:0}));
+  register('stop',async()=>{await Promise.all([...audioContexts].map(async context=>{if(context.state!=='closed')try{await context.suspend();}catch{}}));return{stopped:true,editVersion:0};});
+  register('focus',(value={})=>{
+    if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!['anchor','session'].includes(key)))throw new Error('Invalid station focus request.');
+    if(value.session!==undefined&&(!value.session||typeof value.session!=='object'||Array.isArray(value.session)||Object.keys(value.session).length))throw new Error('This private desk does not accept a transferred source or fiction cue.');
+    const anchor=value.anchor??'';if(typeof anchor!=='string'||(anchor&&!focusAnchors.includes(anchor)))throw new Error('Unknown station focus anchor.');
+    if(anchor){const target=root.document.getElementById(anchor);if(!target)throw new Error('This station focus target is unavailable.');target.scrollIntoView({block:'start',behavior:'auto'});}
+    return{focused:true,anchor,editVersion:0};
+  });
+  root.MozStore=MozStore;
+  function dirty(value){if(!value||!Number.isSafeInteger(value.editVersion)||value.editVersion<0)return;lastDirty=value.editVersion;if(token)post({type:'dirty',token,editVersion:lastDirty});}
+  root.MozHost=Object.freeze({navigate,request,register,dirty,audioContexts,get stationId(){return stationId;},get ready(){return token!==null;}});
+  root.addEventListener('message',event=>{
+    if(event.source!==root.parent)return;
+    const message=event.data;
+    if(!message||message.protocol!==protocol||message.stationId!==stationId)return;
+    if(message.type==='init'){
+      if(token!==null||typeof message.token!=='string'||!/^[a-fA-F0-9]{32}$/.test(message.token))return;
+      token=message.token;
+      for(const key of preferenceKeys){const text=message.preferences?.[key];if(typeof text==='string'&&text.length<=65536&&!dirtyPreferences.has(key))local.map.set(key,text);}
+      for(const [key,limit]of Object.entries(sessionLimits)){const text=message.session?.[key];if(typeof text==='string'&&text.length<=limit)session.map.set(key,text);}
+      root.dispatchEvent(new CustomEvent('mozcorp:init',{detail:{stationId}}));
+      for(const key of dirtyPreferences)request('pref-set',{key,value:local.api.getItem(key)}).catch(()=>{});
+      if(lastDirty!==null)post({type:'dirty',token,editVersion:lastDirty});
+      flush();return;
+    }
+    if(!token||message.token!==token)return;
+    if(message.type==='response'){
+      const job=pending.get(message.requestId);if(!job)return;pending.delete(message.requestId);root.clearTimeout(job.timer);
+      if(message.error){
+        const value=message.error,error=new Error(typeof value==='string'?value:typeof value.message==='string'?value.message:'The Keeper could not complete this action.');
+        if(value&&typeof value==='object'){
+          if(Number.isInteger(value.status)&&value.status>=400&&value.status<=599)error.status=value.status;
+          if(typeof value.code==='string'&&/^[A-Za-z0-9_.-]{1,80}$/.test(value.code))error.code=value.code;
+        }
+        job.reject(error);
+      }else job.resolve(message.result);return;
+    }
+    if(message.type==='request'&&typeof message.requestId==='string'&&message.requestId.length<=100){
+      const handler=handlers.get(message.requestType);
+      if(!handler){post({type:'response',token,requestId:message.requestId,error:'This station adapter is unavailable.'});return;}
+      Promise.resolve().then(()=>handler(message.payload)).then(result=>post({type:'response',token,requestId:message.requestId,result}),error=>post({type:'response',token,requestId:message.requestId,error:error?.message||'This station could not complete the action.'}));
+    }
+  });
+  root.document.addEventListener('click',event=>{
+    const link=event.target.closest?.('a');if(!link||link.hasAttribute('download'))return;
+    if(link.dataset.mozStation||link.dataset.mozOriginal||link.dataset.mozService){
+      event.preventDefault();
+      if(link.dataset.mozService==='upgrades')request('upgrades',{action:'open'}).catch(error=>root.alert(error.message));
+      else if(link.dataset.mozStation)navigate(link.dataset.mozStation,{anchor:link.dataset.mozAnchor||''});
+      else request('open-original',{path:link.dataset.mozOriginal,anchor:link.dataset.mozAnchor||''}).catch(error=>root.alert(error.message));
+      return;
+    }
+    // Opaque private frames cannot open popups. Only an actual click may ask the
+    // trusted parent to show an external URL for review; it never opens it here.
+    if(!event.isTrusted||event.defaultPrevented)return;
+    const raw=link.getAttribute('href');if(!raw||raw.startsWith('#'))return;
+    let url;try{url=new URL(raw,root.location.href);}catch{return;}
+    if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.href.length>4096)return;
+    if(link.target==='_blank'||url.origin!==root.location.origin){
+      event.preventDefault();request('open-link',{url:url.href}).catch(error=>root.alert(error.message));
+    }
+  });
+  function ready(){post({type:'ready'});const anchor='';if(anchor)root.document.getElementById(anchor)?.scrollIntoView({block:'start',behavior:'auto'});}
+  if(root.document.readyState==='loading')root.document.addEventListener('DOMContentLoaded',ready,{once:true});else root.setTimeout(ready,0);
+  root.addEventListener('pagehide',()=>{closed=true;outbound.length=0;for(const job of pending.values()){root.clearTimeout(job.timer);job.reject(new Error('This station has closed.'));}pending.clear();handlers.clear();for(const context of audioContexts)if(context.state!=='closed')context.suspend().catch(()=>{});audioContexts.clear();});
+})(window);
+
+</script>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#101914">
+<title>NEW! Bug World! — Patterns Rare</title>
+<style nonce="__MOZCORP_NONCE__">
+:root{--bg:#101914;--panel:#18251e;--ink:#e7edcf;--muted:#95a892;--line:#354636;--acid:#d2f66c;--pink:#ed99bd;--cyan:#91dfd1;--mono:'Cascadia Code','Consolas',monospace}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 'Segoe UI',Arial,sans-serif}button,input,select{font:inherit}button,select{cursor:pointer}button{background:#24352a;color:var(--ink);border:1px solid #486047;padding:10px 16px;border-radius:4px;transition:background .15s,transform .15s}button:hover{background:#38503a;transform:translateY(-1px)}button:disabled{opacity:.4;cursor:not-allowed;transform:none}button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--pink);outline-offset:3px}button#hatch{white-space:nowrap}button.primary{background:var(--acid);color:#192316;border-color:var(--acid);font-weight:750}button.small{padding:6px 11px;font:12px var(--mono)}button.ghost{background:transparent;border-color:var(--line)}.shell{max-width:1440px;margin:auto;padding:28px 38px 18px}.eyebrow{font:11px var(--mono);letter-spacing:2px;color:var(--muted);text-transform:uppercase}.topline{display:flex;justify-content:space-between;align-items:center;gap:16px;border-bottom:1px solid var(--line);padding-bottom:16px}.logo-small{color:var(--acid);font:900 16px var(--mono)}.toolbar{display:flex;gap:8px;align-items:center}.save-label{font:11px var(--mono);color:var(--muted);margin-right:12px}.hero{display:flex;justify-content:space-between;align-items:center;padding:26px 0 24px;gap:20px}h1{font-size:clamp(34px,4.5vw,64px);line-height:1;letter-spacing:-3px;margin:7px 0 13px;font-weight:850}h1 .new{display:inline-block;transform:rotate(-8deg);color:var(--bg);background:var(--acid);font:800 15px var(--mono);letter-spacing:-1px;padding:7px 9px;vertical-align:top;margin:4px 8px 0 0}.tagline{margin:0;color:#bdcbb5;font-size:15px}.tagline b{color:var(--pink);font-weight:500}.stats{display:flex;gap:30px}.stat strong{font:35px var(--mono);display:block;color:var(--acid);line-height:1.2}.stat span{font:10px var(--mono);letter-spacing:1px;color:var(--muted)}.tabs{display:flex;gap:26px;border-bottom:1px solid var(--line);margin-bottom:20px}.tabs button{border:0;border-radius:0;background:none;color:var(--muted);padding:11px 0;font:12px var(--mono);letter-spacing:1px;border-bottom:3px solid transparent}.tabs button[aria-selected=true]{color:var(--acid);border-color:var(--acid)}.workspace{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:20px}.field{border:1px solid var(--line);border-radius:5px;overflow:hidden;background:#1d2c23}.field-header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);gap:8px}.zone{color:var(--ink);background:#1d2c23;border:0;font:12px var(--mono);max-width:165px}.live{font:10px var(--mono);color:var(--acid);letter-spacing:1px}.live:before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:8px}.canvas-wrap{position:relative;min-height:440px;height:clamp(360px,48vh,610px);overflow:hidden}#world{display:block;width:100%;height:100%;touch-action:manipulation;cursor:crosshair}.field-mark{position:absolute;left:18px;top:15px;font:10px var(--mono);letter-spacing:2px;color:#8eaa82;pointer-events:none}.field-tip{position:absolute;left:16px;bottom:14px;padding:6px 10px;background:#101914dd;color:#aebfa7;font:11px var(--mono);border:1px solid #425740;pointer-events:none}.field-footer{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:13px 15px;background:#18251e;border-top:1px solid var(--line)}.field-footer .hint{font:11px var(--mono);color:var(--muted)}.panel{background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:18px}.specimen-head{display:flex;align-items:center;justify-content:space-between}.pill{font:10px var(--mono);text-transform:uppercase;letter-spacing:1px;border:1px solid #567347;padding:3px 7px;color:var(--acid);border-radius:3px}.specimen-art{height:130px;width:100%;display:block;margin:5px 0}.panel h2{font-size:23px;line-height:1.15;letter-spacing:-.6px;margin:5px 0}.panel p{font-size:13px;color:var(--muted);margin:8px 0 15px}.pattern-name{font:12px var(--mono);color:var(--pink)}.genes{font:10px var(--mono);display:flex;gap:5px;margin:12px 0}.genes span{padding:4px 7px;border:1px solid var(--line);color:var(--muted)}.actions{display:flex;gap:8px}.actions button{flex:1;padding:10px 7px;font-size:12px}.card-bottom{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-top:16px;border-top:1px solid var(--line);padding-top:14px;font:11px var(--mono);color:var(--muted)}.card-bottom b{color:var(--ink);display:block;font-size:12px;margin-top:4px}.farm{margin-top:14px;padding:14px 16px}.farm-row{display:flex;align-items:center;justify-content:space-between}.farm p{margin:6px 0;font:11px var(--mono)}.progress{height:4px;background:#30412f;margin:10px 0 12px}.progress i{height:100%;display:block;background:var(--acid)}.bottom-note{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--line);margin-top:20px;padding-top:13px;font:10px var(--mono);color:var(--muted);gap:16px}.log{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:65%;color:#b3c09f}.log:before{content:'> ';color:var(--acid)}.page[hidden]{display:none}.page-title{display:flex;align-items:end;justify-content:space-between;margin:25px 0 18px}.page-title h2{font-size:32px;margin:0;letter-spacing:-1px}.page-title p{color:var(--muted);font-size:13px;margin:5px 0}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.dex-card{padding:15px;text-align:left;min-height:170px;background:var(--panel);border:1px solid var(--line);border-radius:5px}.dex-card canvas{height:75px;width:100%;display:block}.dex-card h3{font-size:14px;margin:5px 0}.dex-card p{font:11px var(--mono);color:var(--muted);margin:5px 0}.dex-card.locked{opacity:.55}.pattern-swatch{height:55px;border-radius:2px;margin:10px 0 16px}.dex-count{font:12px var(--mono);color:var(--acid)}.lab-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.lab-grid .panel{padding:23px}.lab-grid h2{margin:0 0 8px}.meter{margin:12px 0;font:11px var(--mono);display:grid;grid-template-columns:85px 1fr 30px;align-items:center;gap:10px}.meter progress{width:100%;height:9px;accent-color:var(--acid)}.lab-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:15px}.lab-actions button{font-size:12px}.upgrade{padding:13px 0;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:10px}.upgrade strong{font-size:13px}.upgrade p{font-size:11px;margin:4px 0}.empathy-art{width:100%;height:290px;background:#0d1511;display:block;margin:15px 0}.empathy-controls{display:flex;align-items:center;justify-content:space-between;gap:12px}.empathy-controls p{margin:0}.terminal{margin-top:20px;display:flex;gap:8px}.terminal input{background:#101914;border:1px solid var(--line);padding:10px;color:var(--acid);font:12px var(--mono);flex:1;min-width:0}.timeline{margin:20px 0}.timeline article{border-left:2px solid var(--acid);padding:8px 20px;margin:14px 0}.timeline h3{font:14px var(--mono);margin:3px 0}.timeline p{color:var(--muted);font-size:13px}dialog{background:var(--panel);color:var(--ink);border:1px solid #69805c;border-radius:6px;padding:28px;max-width:480px;width:calc(100% - 32px)}dialog::backdrop{background:#050a08bd;backdrop-filter:blur(4px)}dialog h2{font-size:28px;line-height:1.1;margin:0 0 16px}dialog p{color:#bac6ad;font-size:14px}dialog .actions{margin-top:24px}#toast{position:fixed;left:50%;bottom:25px;transform:translateX(-50%);background:var(--acid);color:#172414;padding:12px 20px;box-shadow:0 4px 30px #0008;font:12px var(--mono);max-width:min(90vw,640px);z-index:10;border-radius:4px;display:none}#toast.visible{display:block}.roster{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.roster button{font:11px var(--mono);padding:6px 8px}.roster button[aria-pressed=true]{border-color:var(--acid);color:var(--acid)}.secondary-line{font:10px var(--mono);color:var(--muted);margin:12px 0 0}.rare-text{color:var(--pink)}@media(max-width:1000px){.shell{padding:20px}.stats{gap:18px}.workspace{grid-template-columns:1fr 270px}.grid{grid-template-columns:repeat(3,1fr)}.hero h1{font-size:45px}.save-label{display:none}}@media(max-width:730px){.shell{padding:15px}.hero{align-items:start;flex-direction:column;padding:24px 0 15px;gap:20px}.hero h1{font-size:43px}.stats{width:100%;justify-content:space-between}.stat strong{font-size:27px}.workspace{grid-template-columns:1fr}.canvas-wrap{min-height:340px;height:390px}.panel.selected-panel{display:grid;grid-template-columns:110px 1fr;gap:10px}.selected-panel .specimen-head{grid-column:1/-1}.specimen-art{height:120px;margin:0}.specimen-details{align-self:center}.selected-panel .actions,.selected-panel .card-bottom{grid-column:1/-1}.card-bottom{margin-top:4px}.grid{grid-template-columns:repeat(2,1fr)}.lab-grid{grid-template-columns:1fr}.tabs{gap:20px}.tabs button{font-size:10px}.toolbar{gap:5px}.toolbar button{font-size:10px;padding:6px}.logo-small{font-size:13px}.bottom-note{align-items:start;flex-direction:column;gap:7px}.log{max-width:100%}.field-footer{flex-wrap:wrap}.field-footer .hint{font-size:10px}.page-title{align-items:start;flex-direction:column}.page-title h2{font-size:28px}}@media(prefers-reduced-motion:reduce){button{transition:none}}
+.hunt-heading{display:flex;justify-content:space-between;align-items:center;margin:4px 0 18px}.hunt-heading h2{font-size:32px;letter-spacing:-1px;margin:4px 0}.hunt-layout{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:20px}.hunt-main{min-width:0}.hunt-hud{display:flex;gap:14px;align-items:center;padding:12px 15px;background:var(--panel);border:1px solid var(--line);border-bottom:0;border-radius:5px 5px 0 0;font:11px var(--mono)}.hunt-hud strong{color:var(--acid);margin-right:auto}.hunt-hud progress{width:95px;height:8px;accent-color:var(--acid)}.hp-label{color:var(--muted)}.hp-label b{color:var(--ink)}.hunt-arena{width:100%;max-width:100%;min-width:0;position:relative;background:#182b20;border:1px solid var(--line);aspect-ratio:5/3;overflow:hidden;min-height:280px}#hunt-canvas{width:100%;height:100%;display:block;touch-action:none;cursor:crosshair;outline-offset:-3px}.hunt-canvas-label{position:absolute;top:14px;left:16px;font:10px var(--mono);letter-spacing:1px;color:#99b982;pointer-events:none}#frog-health{position:absolute;top:13px;left:20%;width:60%;font:11px var(--mono);color:#f7cedc;pointer-events:none}#frog-health span{display:flex;justify-content:space-between}#frog-health b{font-size:10px;font-weight:400}#frog-health progress{display:block;width:100%;height:8px;accent-color:var(--pink);margin-top:7px}#hunt-pause-overlay,#hunt-result{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#0b1711df;backdrop-filter:blur(3px);text-align:center;padding:20px}#hunt-pause-overlay[hidden],#hunt-result[hidden],#frog-health[hidden],#hunt-play[hidden],#starter-screen[hidden]{display:none}#hunt-pause-overlay span{font:25px var(--mono);letter-spacing:7px}#hunt-result h2{font-size:38px;letter-spacing:-1px;margin:0}#hunt-result p{max-width:440px;color:var(--muted)}.bite-deck{background:var(--panel);border:1px solid var(--line);border-top:0;padding:14px;border-radius:0 0 5px 5px}.bite-caption{display:flex;justify-content:space-between;gap:10px;align-items:start;font:11px var(--mono);margin-bottom:12px}.bite-caption strong{color:var(--ink)}.bite-caption span{color:var(--muted);text-align:right;max-width:56%}.bite-track{height:32px;position:relative;background:#0c1710;border:1px solid #40593d;overflow:hidden;margin-bottom:12px;border-radius:3px}.bite-track i{position:absolute;left:35%;width:25%;height:100%;background:#d2f66c77;border-left:2px solid var(--acid);border-right:2px solid var(--acid)}.bite-track b{position:absolute;height:100%;width:3px;left:0;background:#fff;box-shadow:0 0 7px #fff}.bite-track span{position:absolute;inset:0;text-align:center;line-height:30px;font:9px/30px var(--mono);letter-spacing:2px;color:#e0eac3;opacity:.6}.bite-track.idle{opacity:.3}.bite-track.in-window{box-shadow:0 0 13px #d2f66c45;border-color:var(--acid)}.hunt-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.dpad{display:flex;gap:4px}.dpad button{font-size:18px;min-width:40px;height:40px;padding:4px;touch-action:none}.bite-button{min-width:130px;min-height:42px}.bite-button kbd{font:9px var(--mono);opacity:.6;margin-left:9px}.timing-toggle{font:10px var(--mono);color:var(--muted);margin-left:auto;display:flex;align-items:center;gap:5px}.timing-toggle input{accent-color:var(--acid)}.hunt-targets{padding:15px 0}.hunt-targets>div{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.hunt-targets button{font:11px var(--mono);padding:8px 11px}.hunt-targets button[aria-pressed=true]{border-color:var(--pink);color:var(--pink)}.hunt-side .panel{margin-bottom:14px}.hunt-side h2{margin-top:10px}.hunt-skills{display:grid;gap:8px}.hunt-skills button{text-align:left;padding:10px 12px;display:grid;grid-template-columns:20px 1fr auto;column-gap:8px;position:relative;overflow:hidden}.hunt-skills kbd{grid-row:span 2;font:11px var(--mono);color:var(--pink);padding-top:3px}.hunt-skills strong{font-size:12px}.hunt-skills .rank{font:10px var(--mono);color:var(--acid)}.hunt-skills small{grid-column:2/4;font-size:10px;color:var(--muted);margin-top:3px}.hunt-skills button:disabled{opacity:.55}.frog-emblem{float:right;font:bold 30px var(--mono);color:var(--acid);letter-spacing:-5px;transform:rotate(-6deg);margin-top:9px}.frog-card{border-color:#4a5b37}.frog-card button{width:100%;font-size:12px}.hunt-event{min-height:42px;color:var(--pink);font:11px/1.6 var(--mono)}.starter-screen{border:1px solid var(--line);background:radial-gradient(ellipse at 50% 0,#30402a,transparent 60%),var(--panel);padding:30px;border-radius:6px;text-align:center}.starter-screen h2{font-size:32px;margin:0 0 5px;letter-spacing:-.6px}.starter-screen p{color:var(--muted);margin:8px 0 24px;font-size:14px}.starter-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.starter-cards button{background:#16251b;border:1px solid #466040;border-radius:5px;text-align:left;padding:20px 16px;position:relative}.starter-cards button:hover{border-color:var(--acid);background:#273c25;transform:translateY(-4px)}.starter-cards canvas{width:100%;height:120px;display:block}.starter-cards h3{font-size:19px;margin:5px 0}.starter-cards strong{color:var(--acid);font:11px var(--mono);text-transform:uppercase}.starter-cards p{font-size:12px;min-height:55px;margin:10px 0 20px}.starter-cards .choose-label{font:11px var(--mono);border-top:1px solid var(--line);padding-top:10px;display:block;color:var(--pink)}.starter-screen .start-note{font:11px var(--mono);margin:22px 0 0}.tabs{scrollbar-width:thin;scrollbar-color:var(--line) transparent;overflow-x:auto;white-space:nowrap;gap:22px}.tabs button{flex-shrink:0}.hero{padding-top:20px;padding-bottom:20px}body:has(#page-hunt:not([hidden])) .hero h1{font-size:46px}body:has(#page-hunt:not([hidden])) .hero .eyebrow{font-size:10px}body:has(#page-hunt:not([hidden])) .stats .stat strong{font-size:28px}@media(max-width:1000px){.hunt-layout{grid-template-columns:minmax(0,1fr) 250px}.starter-cards{grid-template-columns:repeat(2,1fr)}.hunt-hud{gap:8px}.hp-label{font-size:10px}.hunt-hud progress{width:65px}}@media(max-width:730px){.hunt-layout{grid-template-columns:1fr}.hunt-heading{align-items:start;gap:10px}.hunt-heading h2{font-size:25px}.hunt-heading .eyebrow{font-size:9px;letter-spacing:1px}.hunt-heading>.pill{font-size:8px;white-space:nowrap;margin-top:5px}.starter-screen{padding:20px 12px}.starter-screen h2{font-size:26px}.starter-cards{gap:8px}.starter-cards button{padding:12px}.starter-cards canvas{height:85px}.starter-cards h3{font-size:17px}.starter-cards p{font-size:11px;min-height:60px}.hunt-arena{min-height:280px}.hunt-hud{font-size:10px}.hunt-hud progress{width:50px}.hunt-canvas-label{font-size:8px;left:10px;top:10px}.bite-caption{font-size:10px}.bite-caption span{max-width:60%}.bite-button{min-width:100px;padding:10px}.dpad button{min-width:34px}.timing-toggle{margin:0}.hunt-controls{gap:7px}.hunt-side{display:grid;grid-template-columns:1fr;gap:0}.hunt-skills{grid-template-columns:1fr 1fr}.hunt-skills button{padding:10px 7px;column-gap:4px}.hunt-skills small{font-size:9px}.hunt-skills strong{font-size:11px}.hunt-skills .rank{font-size:9px}.hunt-event{min-height:0}.hero .stats{display:none}body:has(#page-hunt:not([hidden])) .hero h1{font-size:37px}.hero{gap:7px}.tagline{font-size:12px}#frog-health{left:10%;width:80%;top:28px}.hunt-targets button{font-size:10px}.tabs{gap:18px}.tabs button{padding:9px 0}}
+
+</style></head>
+<body><main class="shell">
+<header class="topline"><div class="logo-small">møzCORP <span style="color:var(--muted);font-weight:400">/ FIELD LAB</span></div><div class="toolbar"><span id="save-status" class="save-label">LOCAL WORLD</span><button class="small ghost" id="global-pause">Pause motion</button><button class="small ghost" id="help">Field guide</button><button class="small ghost" id="import">Import</button><button class="small ghost" id="export">Save file ↗</button><input type="file" id="file" accept="application/json,.json" hidden></div></header>
+<section class="hero"><div><div class="eyebrow">A small world. An unreasonable amount of life.</div><h1><span class="new">NEW!</span>BUG WORLD!</h1><p class="tagline">Roaches warp. Stripes stripe. Ladybugs dot. <b>Patterns rare.</b></p></div><div class="stats"><div class="stat"><strong id="bits">6</strong><span>BUG BITS</span></div><div class="stat"><strong id="population">13</strong><span>BUGZ ALIVE</span></div><div class="stat"><strong id="patterns">0<span style="font-size:17px"> / 12</span></strong><span>PATTERNS FOUND</span></div></div></section>
+<nav class="tabs" aria-label="World sections" role="tablist"><button role="tab" aria-selected="false" data-tab="hunt">01 / EAT & EVOLVE</button><button role="tab" aria-selected="true" data-tab="field">02 / FIELD LAB</button><button role="tab" aria-selected="false" data-tab="dex">03 / BUG-O-DEX</button><button role="tab" aria-selected="false" data-tab="lab">04 / WEIRD LAB</button><button role="tab" aria-selected="false" data-tab="lineage">05 / NEW NUL</button></nav>
+<section class="page" id="page-hunt" role="tabpanel" hidden>
+<div class="hunt-heading"><div><span class="eyebrow">THE FOOD CHAIN HAS A FINAL BOSS</span><h2>Small bug. Big appetite.</h2></div><span class="pill" id="hunt-stage">CHOOSE YOUR BUG</span></div>
+<div id="starter-screen" class="starter-screen"><div><h2>Who are you going to be?</h2><p>One bug. One starting power. Eat your way to the others.</p></div><div id="starter-cards" class="starter-cards"></div><p class="start-note">Empathy and Preservation stay in the lab. Out here, you hunt wild bugs.</p></div>
+<div id="hunt-play" hidden><div class="hunt-layout"><div class="hunt-main"><div class="hunt-hud"><strong id="hunt-name">QUARK ROACH</strong><span class="hp-label">LIFE <b id="hunt-hp">100 / 100</b></span><progress id="hunt-life" max="100" value="100" aria-label="Player health"></progress><button class="small ghost" id="hunt-pause">Pause</button></div>
+<div class="hunt-arena"><canvas id="hunt-canvas" tabindex="0" aria-label="Bug adventure arena. Move with WASD or arrows, or tap a destination. Space catches and bites; number keys use skills."></canvas><div class="hunt-canvas-label" id="hunt-location">THE CRUMBLANDS / HUNTING GROUND</div><div id="frog-health" hidden><span>BOSS FROG <b id="frog-phase">WATCH THE TONGUE</b></span><progress id="frog-life" max="120" value="120" aria-label="Boss frog health"></progress></div><div id="hunt-pause-overlay" hidden><span>PAUSED</span><button class="primary" id="hunt-resume">Resume adventure</button></div><div id="hunt-result" hidden><h2 id="hunt-result-title">A tiny setback.</h2><p id="hunt-result-copy"></p><button class="primary" id="hunt-retry">Try again · keep skills</button></div></div>
+<div class="bite-deck"><div class="bite-caption"><strong id="bite-title">Catch something worth becoming.</strong><span id="bite-help">Get close, then press Eat / Space.</span></div><div class="bite-track" id="bite-track" role="meter" aria-label="Bite timing" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="bite-window"></i><b id="bite-marker"></b><span>HIT THE GREEN WINDOW</span></div><div class="hunt-controls"><div class="dpad" aria-label="Movement buttons"><button data-dir="up" aria-label="Move up">↑</button><button data-dir="left" aria-label="Move left">←</button><button data-dir="down" aria-label="Move down">↓</button><button data-dir="right" aria-label="Move right">→</button></div><button class="primary bite-button" id="hunt-bite">Eat <kbd>SPACE</kbd></button><label class="timing-toggle"><input id="slow-bite" type="checkbox"> Slower bite timing</label></div></div>
+<div class="hunt-targets"><span class="eyebrow">PICK YOUR PREY / TAP TO CHASE</span><div id="hunt-prey-buttons"></div></div></div>
+<aside class="hunt-side"><section class="panel"><span class="eyebrow">YOU ARE WHAT YOU EAT</span><h2 id="meal-count">0 clean bites</h2><p id="hunt-objective">Eat 3 bugs cleanly and learn 3 different skills to face the frog.</p><div id="hunt-skills" class="hunt-skills"></div><p class="secondary-line">A clean bite learns a power. Repeat meals raise its rank, up to III.</p></section><section class="panel frog-card"><div class="frog-emblem">◉—◉</div><span class="eyebrow">KING OF THE POND</span><h2>Boss Frog</h2><p id="frog-gate">Three clean bites. Three learned skills. Then the pond opens.</p><button id="hunt-boss" class="primary" disabled>Enter the frog pond</button><p class="secondary-line">Dodge the marked tongue line. Strike when the frog is catching its breath.</p></section><p class="hunt-event" id="hunt-event" role="status" aria-live="polite">The meadow is waiting.</p><button class="small ghost" id="hunt-new-run">Choose a different starter</button></aside></div></div>
+</section>
+<dialog id="confirm-hunt-reset"><h2>Choose a new beginning?</h2><p>This restarts the adventure and its learned skills. Your Bug-o-Dex, lab, and original world stay saved.</p><div class="actions"><button id="cancel-hunt-reset">Keep this bug</button><button class="primary" id="do-hunt-reset">Choose a new bug</button></div></dialog>
+
+<section class="page" id="page-field" role="tabpanel"><div class="workspace"><div><div class="field"><div class="field-header"><select id="zone" class="zone" aria-label="Explore zone"></select><span id="weather" class="eyebrow" style="font-size:10px;letter-spacing:1px">SPORE DRIFT</span><span id="live" class="live">LIVING</span></div><div class="canvas-wrap"><canvas id="world" aria-label="Living bug field. Click a bug to discover its pattern; accessible bug buttons are below."></canvas><span class="field-mark">OBSERVATION AREA / <span id="world-gen">001</span></span><span class="field-tip" id="field-tip">Click a bug. Find its pattern. Let it be weird.</span></div><div class="field-footer"><div class="actions"><button class="primary" id="hatch">+ Hatch a bug <span style="opacity:.6">· 3 bits</span></button><button id="pause" class="ghost">Pause</button></div><span class="hint" id="rare-progress">Every 7th hatch: a rare pattern.</span></div></div><div class="roster" id="roster" aria-label="Select and observe bugs"></div></div><aside><section class="panel selected-panel"><div class="specimen-head"><span class="eyebrow">UNDER THE LENS</span><span id="rarity" class="pill">COMMON</span></div><canvas id="portrait" class="specimen-art" aria-label="Selected bug portrait"></canvas><div class="specimen-details"><h2 id="bug-name">Quark Roach</h2><span class="pattern-name" id="pattern-name">Pattern / pending</span><p id="behavior">Bends space when you get close. Very casual about it.</p><div class="genes" id="genes"></div></div><div class="actions"><button class="primary" id="scan">Observe + bits</button><button id="mutate">Mutate · 6 bits</button></div><div class="card-bottom"><span>OBSERVATION<b id="scan-status">UNRECORDED</b></span><span>CHAMPION<b id="champion">Quark Roach</b></span></div></section><section class="panel farm"><div class="farm-row"><span class="eyebrow">FRAM::FARM</span><span style="color:var(--acid)">✳</span></div><p>Your tiny crumb crop is growing.</p><div class="progress"><i id="farm-progress" style="width:0%"></i></div><div class="farm-row"><span class="dex-count" id="farm-count">0 bits ready</span><button class="small" id="harvest">Collect</button></div></section><p class="secondary-line">No bug is captured. The pattern is the keepsake.</p></aside></div></section>
+<section class="page" id="page-dex" role="tabpanel" hidden><div class="page-title"><div><div class="eyebrow">A cabinet of beautiful accidents</div><h2>Patterns, preserved.</h2><p>Observe a bug to record its markings. Rare patterns look different on every species.</p></div><span class="dex-count" id="dex-count"></span></div><div class="grid" id="dex-grid"></div><div class="page-title"><div><h2>Your living collection</h2><p>Choose a specimen to return to the field.</p></div></div><div class="grid" id="specimen-grid"></div></section>
+<section class="page" id="page-lab" role="tabpanel" hidden><div class="page-title"><div><div class="eyebrow">The unknown has excellent manners</div><h2>A little more impossible.</h2><p>Care, curiosity, and carefully applied weirdness.</p></div></div><div class="lab-grid"><section class="panel"><span class="eyebrow">EMPATHY / GENERATIVE SPECIMEN</span><canvas id="empathy" class="empathy-art" aria-label="Empathy, a moving particle pill bug carrying Preservation"></canvas><h2>Empathy & Preservation</h2><p>Your original point-creature is alive in motion. A tiny companion hangs on. The flower is still thirsty.</p><div class="empathy-controls"><button class="primary" id="water">Water the flower</button><p id="flower-status">One kind thing at a time.</p></div></section><section class="panel"><span class="eyebrow">ENCOUNTER / CONFUSION CLOUD</span><h2 style="margin-top:10px">How do you know?</h2><p id="battle-copy">A cloud has misplaced the difference between a source and a spoon. Help it find clarity.</p><div id="battle-meters"></div><div class="lab-actions"><button class="primary" id="start-battle">Meet the cloud</button><button data-move="clarify">Clarify</button><button data-move="care">Care</button><button data-move="warp">Warp</button></div><p class="secondary-line">Clarify lowers heat. Care restores energy. Warp changes the angle.</p><div style="margin-top:30px"><span class="eyebrow">PURPLE UPGRADE KIT</span><p id="upgrade-points"></p><div id="upgrades"></div><button class="small ghost" id="rollback">Undo last upgrade</button></div></section></div><form class="terminal" id="terminal"><input id="command" aria-label="Secret terminal command" placeholder="UNKNOWN MAP > try TIMETIME, KNOWN, or DUMBISM" maxlength="80" autocomplete="off"><button type="submit">Run ↵</button></form><p id="terminal-out" class="secondary-line" aria-live="polite">KNOWN(UNKNOWN(x)) = ???</p></section>
+<section class="page" id="page-lineage" role="tabpanel" hidden><div class="page-title"><div><div class="eyebrow">PRESERVATION / ONE WORLD AT A TIME</div><h2>Every ending leaves a seed.</h2><p>End this chapter, then step into a new nul. Your discoveries and companions travel with you.</p></div></div><div class="lab-grid"><section class="panel"><div class="eyebrow">CURRENT CHAPTER</div><h2 id="chapter" style="font-size:56px;margin:20px 0">WORLD 001</h2><p>Empathy. Preservation. The thirsty flower.<br>What you remember is what you carry.</p><button id="end-world" class="primary">End this world → new nul</button><p class="secondary-line">An explicit ending. The old chapter joins your lineage.</p></section><section class="panel"><span class="eyebrow">THE TRUTH FROM MEMORY</span><div id="lineage-list" class="timeline"></div></section></div></section>
+<footer class="bottom-note"><span class="log" id="log">Calculating wing vibrations. This may tickle.</span><span>NEW! BUG WORLD! / EAT & EVOLVE / v1.1</span></footer>
+</main><div id="toast" role="status" aria-live="polite"></div>
+<dialog id="guide"><h2>Eat. Evolve. Defeat the frog.</h2><p>Choose a starting bug in Eat & Evolve. Move with WASD, arrows, or tap to walk. The prey buttons chase a bug for you. Get close and press <b>Eat / Space</b> to catch it, then press again in the green timing window to learn its power.</p><p>A rushed bite eats the bug but gives no skill and costs health. Three missed passes let it escape. Eat the same species cleanly to raise its skill to rank III. Use <b>1–4</b> or the skill buttons. Slower bite timing is available.</p><p>After three clean bites and three learned skills, enter the frog pond. Move off the pink warning line, then bite or use powers while the frog rests. Retry keeps learned skills. <b>P</b> pauses.</p><p>The original Field Lab is still here:</p><p>Click a bug to observe its pattern and earn Bug Bits. Or choose a bug from the buttons under the field.</p><p><b>Roaches warp</b> away from your pointer. <b>Striped bugs stripe</b> the ground. <b>Ladybugs dot</b> wherever they wander.</p><p>Hatch bugs for 3 bits, or mutate a pattern for 6. Each seventh paid hatch guarantees a rare or mythic pattern. Collect growing crumbs from FRAM::FARM to keep exploring.</p><p>Visit Weird Lab to water Empathy’s flower, meet the Confusion Cloud, and try upgrades. Your progress saves in this browser. Save a file to keep a portable copy.</p><div class="actions"><button class="primary" id="close-guide">Into the world</button></div></dialog>
+<dialog id="confirm-end"><h2>One last look.</h2><p>This ends the current chapter. Your discovered patterns and companions continue; the field renews. Save a file first if you want a separate copy of this chapter.</p><div class="actions"><button id="cancel-end">Stay here</button><button class="primary" id="do-end">End & grow a new world</button></div></dialog>
+<script nonce="__MOZCORP_NONCE__" data-moz-source="bug-world.inline.1">
+(function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.HuntEngine=api;})(typeof globalThis!=='undefined'?globalThis:this,function(){
+'use strict';
+const WIDTH=1000,HEIGHT=600,BITE_RANGE=76;
+const SPECIES=[{id:'roach',name:'Quark Roach',skill:'warp',color:'#b8f568'},{id:'stripe',name:'Ribbon Mite',skill:'stripe',color:'#ed9eff'},{id:'ladybug',name:'Ladybug',skill:'dot',color:'#ff7c8c'},{id:'pill',name:'Pill Bug',skill:'shell',color:'#72e4da'}];
+const SKILLS=[{id:'warp',name:'Warp',key:'1',description:'Dash forward and pass safely through danger.',cooldown:4},{id:'stripe',name:'Stripe',key:'2',description:'Sprint and leave stripes that hurt an exposed frog.',cooldown:6},{id:'dot',name:'Dot',key:'3',description:'Release dots in every direction. Hits an exposed frog within 450.',cooldown:5},{id:'shell',name:'Shell',key:'4',description:'Heal and reduce damage for a short time.',cooldown:8}];
+const patternIds=['moss','ink','ribbon','rust','tide','orchid','checker','nebula','aurora','ghost','eclipse','paradox'];
+const clamp=(n,a,b)=>Math.min(b,Math.max(a,n));
+const num=(n,d=0,a=-1e6,b=1e6)=>typeof n==='number'&&Number.isFinite(n)?clamp(n,a,b):d;
+const whole=(n,d=0,a=0,b=999999)=>Math.floor(num(n,d,a,b));
+const species=id=>SPECIES.find(s=>s.id===id)||SPECIES[0];
+const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+function rngValue(rng){return num(rng(),.5,0,.99999999);}
+function log(h,type,message,extra={}){const e=Object.assign({id:h.eventId++,type,message},extra);h.events.push(e);h.events=h.events.slice(-24);h.explanation=message;return e;}
+function result(h,ok,message,extra={}){if(message)log(h,ok?'action':'notice',message);return Object.assign({ok,message},extra);}
+function effect(h,type,x,y,life,extra={}){h.effects.push(Object.assign({type,x,y,life,maxLife:life},extra));if(h.effects.length>150)h.effects.splice(0,h.effects.length-150);}
+function makePrey(h,index,rng){const s=SPECIES[index%4],rare=rngValue(rng)>.88;let x=100+rngValue(rng)*800,y=80+rngValue(rng)*440;if(Math.hypot(x-h.player.x,y-h.player.y)<125)x=x<500?800:150;return {id:'prey-'+h.nextId++,species:s.id,pattern:patternIds[rare?7+Math.floor(rngValue(rng)*5):Math.floor(rngValue(rng)*7)],x,y,phase:rngValue(rng)*Math.PI*2,speed:18+rngValue(rng)*15};}
+function fresh(id='roach',rng=Math.random){
+ const valid=species(id),h={version:1,status:'playing',stage:'meadow',time:0,nextId:1,eventId:1,totalMeals:0,perfectMeals:0,patterns:[],victories:0,bossRewarded:false,bite:null,boss:null,events:[],effects:[],explanation:'Eat with good timing to learn the other bugs’ skills.',player:{x:180,y:300,hp:100,maxHp:100,species:valid.id,skills:{warp:0,stripe:0,dot:0,shell:0},cooldowns:{warp:0,stripe:0,dot:0,shell:0},vx:0,vy:0,facingX:1,facingY:0,invulnerable:0,stripeTime:0,shellTime:0,stripeTick:0,stripeMark:0},prey:[]};
+ h.player.skills[valid.skill]=1;for(let i=0;i<12;i++)h.prey.push(makePrey(h,i,rng));log(h,'started',valid.name+' begins the journey. '+SKILLS.find(x=>x.id===valid.skill).name+' is already learned.');return h;
+}
+function learnedCount(h){return SKILLS.filter(s=>h.player.skills[s.id]>0).length;}
+function bossReady(h){return h.perfectMeals>=3&&learnedCount(h)>=3;}
+function warnFrog(h){const b=h.boss,p=h.player;if(!b||b.status!=='active')return;b.phase='telegraph';b.timer=1.35;const dx=p.x-b.x,dy=p.y-b.y,d=Math.hypot(dx,dy),scale=d>620?620/d:1;b.aimX=b.x+dx*scale;b.aimY=b.y+dy*scale;b.attackHit=false;}
+function hurt(h,amount,reason){if(h.status!=='playing'||h.player.invulnerable>0)return 0;const damage=h.player.shellTime>0?Math.max(1,Math.ceil(amount*.3)):amount;h.player.hp=Math.max(0,h.player.hp-damage);h.player.invulnerable=.65;effect(h,'hit',h.player.x,h.player.y,.45,{damage});if(h.player.hp===0){h.status='dead';h.bite=null;log(h,'death',reason+' Your journey pauses here. Retry keeps your learned skills and patterns.');}return damage;}
+function hitBoss(h,amount){const b=h.boss;if(!b||b.status!=='active'||b.phase!=='rest'||h.status!=='playing')return 0;b.hp=Math.max(0,b.hp-amount);effect(h,'boss-hit',b.x,b.y,.4,{damage:amount});if(b.hp===0){b.status='defeated';b.phase='defeated';h.status='won';h.bite=null;h.victories++;const firstVictory=!h.bossRewarded;h.bossRewarded=true;log(h,'victory','The frog yields the pond. Your tiny bug made it.',{firstVictory});}return amount;}
+function beginBite(h,preyId){
+ if(h.status!=='playing')return result(h,false,'Retry or begin a new journey first.');if(h.bite)return result(h,false,'The timing ring is already running. Press Eat again in the bright zone.');
+ const b=h.boss,nearFrog=b&&b.status==='active'&&distance(h.player,b)<=BITE_RANGE+24;
+ if(preyId==='frog'||(!preyId&&nearFrog&&b.phase==='rest')){if(!nearFrog)return result(h,false,'Get closer to the frog.');if(b.phase!=='rest')return result(h,false,'Wait until the frog rests and its mouth opens.');h.bite={preyId:'frog',progress:0,windowStart:.33,windowEnd:.67,cycles:0};return result(h,true,'Frog exposed! Press Eat again inside the bright zone.',{target:'frog'});}
+ let prey=preyId?h.prey.find(p=>p.id===preyId):h.prey.slice().sort((a,b)=>distance(h.player,a)-distance(h.player,b))[0];if(!prey||distance(h.player,prey)>BITE_RANGE)return result(h,false,'Move closer to a small bug, then press Eat.');
+ const starts={roach:.44,stripe:.27,ladybug:.35,pill:.18};h.bite={preyId:prey.id,progress:0,windowStart:starts[prey.species],windowEnd:starts[prey.species]+.3,cycles:0};return result(h,true,'Timing '+species(prey.species).name+' — press Eat again in the bright zone.',{target:prey.id});
+}
+function finishBite(h,rng=Math.random){
+ if(h.status!=='playing'||!h.bite)return result(h,false,'Get close and press Eat to start the timing ring.');const bite=h.bite,perfect=bite.progress>=bite.windowStart&&bite.progress<=bite.windowEnd;h.bite=null;
+ if(bite.preyId==='frog'){if(!h.boss||h.boss.status!=='active'||h.boss.phase!=='rest')return result(h,false,'The frog is no longer exposed.');if(perfect){const damage=hitBoss(h,30);warnFrog(h);return result(h,true,'Perfect frog bite! '+damage+' damage. The frog closes its mouth.',{perfect:true,bossDamage:damage});}hurt(h,12,'The frog snapped back.');warnFrog(h);return result(h,false,'Too early or too late. The frog snaps back.',{perfect:false});}
+ const at=h.prey.findIndex(p=>p.id===bite.preyId);if(at<0)return result(h,false,'That bug escaped.');const prey=h.prey[at],skill=species(prey.species).skill;h.prey.splice(at,1);h.totalMeals++;
+ const key=prey.species+':'+prey.pattern;if(!h.patterns.includes(key))h.patterns.push(key);
+ let gained=false;if(perfect){h.perfectMeals++;const old=h.player.skills[skill];h.player.skills[skill]=Math.min(3,old+1);gained=h.player.skills[skill]>old;h.player.hp=Math.min(h.player.maxHp,h.player.hp+5);log(h,'meal','Perfect meal: '+species(prey.species).name+'. '+SKILLS.find(s=>s.id===skill).name+' rank '+h.player.skills[skill]+'.',{perfect:true,clean:true,skill,rank:h.player.skills[skill],pattern:prey.pattern,species:prey.species});}else{hurt(h,6,'A rushed meal upset your bug.');log(h,'meal','Rushed meal. The pattern is kept, but the skill was not learned. Try the bright zone.',{perfect:false,clean:false,skill,pattern:prey.pattern,species:prey.species});}
+ effect(h,perfect?'learn':'meal',prey.x,prey.y,.8,{color:species(prey.species).color});h.prey.push(makePrey(h,SPECIES.findIndex(s=>s.id===prey.species),rng));if(perfect&&bossReady(h))log(h,'boss-ready','Three good meals and three skills. The frog at the pond can now be challenged.');
+ return {ok:perfect,message:perfect?(gained?'Skill learned: ':'Skill practiced: ')+SKILLS.find(s=>s.id===skill).name+' · rank '+h.player.skills[skill]:'Timing missed. No skill gained.',perfect,gained,skill,pattern:prey.pattern};
+}
+function startBoss(h){if(h.status!=='playing')return result(h,false,'Retry your journey first.');if(h.boss&&h.boss.status==='active')return result(h,false,'The frog is already here.');if(!bossReady(h))return result(h,false,'The pond opens after 3 perfect meals and 3 different learned skills.');h.bite=null;h.stage='frog';h.boss={status:'active',hp:120,maxHp:120,x:800,y:300,phase:'telegraph',timer:1.35,aimX:h.player.x,aimY:h.player.y,attackHit:false,contactTimer:0,cycle:0};warnFrog(h);log(h,'boss-start','BOSS FROG // Dodge the tongue line. Strike while the frog rests.');return {ok:true,message:'The frog guards the pond. Watch its tongue!'};}
+function useSkill(h,id){
+ const def=SKILLS.find(s=>s.id===id),p=h.player;if(!def)return result(h,false,'Unknown skill.');if(h.status!=='playing'||h.bite)return result(h,false,'Finish the timing ring before using a skill.');const rank=p.skills[id];if(!rank)return result(h,false,'Eat the right bug in the bright zone to learn '+def.name+'.');if(p.cooldowns[id]>0)return result(h,false,def.name+' is recharging.');p.cooldowns[id]=Math.max(1,def.cooldown-(rank-1)*.6);
+ if(id==='warp'){const x=p.x,y=p.y,dist=130+rank*25;p.x=clamp(p.x+p.facingX*dist,26,974);p.y=clamp(p.y+p.facingY*dist,30,570);p.invulnerable=1+.15*rank;effect(h,'warp',x,y,.7,{toX:p.x,toY:p.y});effect(h,'warp',p.x,p.y,.7);if(h.boss&&distance(p,h.boss)<100)hitBoss(h,12+rank*4);}
+ if(id==='stripe'){p.stripeTime=3+rank*.6;p.stripeTick=0;effect(h,'stripe',p.x,p.y,.7,{radius:28,color:'#ed9eff'});}
+ if(id==='dot'){effect(h,'dots',p.x,p.y,.7,{radius:450,color:'#ff7c8c',count:8+rank*4});if(h.boss&&distance(p,h.boss)<=450)hitBoss(h,16+rank*7);}
+ if(id==='shell'){p.shellTime=3.5+rank;p.hp=Math.min(p.maxHp,p.hp+10+rank*6);effect(h,'shell',p.x,p.y,1,{radius:33,color:'#72e4da'});}
+ return result(h,true,def.name+'!');
+}
+function lineDistance(px,py,ax,ay,bx,by){const dx=bx-ax,dy=by-ay,len=dx*dx+dy*dy,t=len?clamp(((px-ax)*dx+(py-ay)*dy)/len,0,1):0;return Math.hypot(px-(ax+t*dx),py-(ay+t*dy));}
+function step(h,dt,input={},rng=Math.random){
+ dt=num(dt,0,0,.1);if(!dt||h.status!=='playing')return h;h.time+=dt;
+ if(h.bite){h.bite.progress+=dt/1.8;while(h.bite&&h.bite.progress>=1){h.bite.progress-=1;h.bite.cycles++;if(h.bite.cycles>=3){h.bite=null;hurt(h,4,'The timing window slipped away.');log(h,'escape','The target wriggled free. Try again when you are ready.');}}return h;}
+ const p=h.player;for(const s of SKILLS)p.cooldowns[s.id]=Math.max(0,p.cooldowns[s.id]-dt);p.invulnerable=Math.max(0,p.invulnerable-dt);p.stripeTime=Math.max(0,p.stripeTime-dt);p.shellTime=Math.max(0,p.shellTime-dt);
+ let dx=num(input.x,0,-1,1),dy=num(input.y,0,-1,1);if(!dx&&!dy&&input.target&&typeof input.target==='object'){const tx=num(input.target.x,p.x,0,WIDTH)-p.x,ty=num(input.target.y,p.y,0,HEIGHT)-p.y,d=Math.hypot(tx,ty);if(d>6){dx=tx/d;dy=ty/d;}}
+ const len=Math.hypot(dx,dy);if(len>1){dx/=len;dy/=len;}const speed=p.stripeTime>0?250+15*p.skills.stripe:160;p.vx=dx*speed;p.vy=dy*speed;if(dx||dy){const a=Math.hypot(dx,dy);p.facingX=dx/a;p.facingY=dy/a;}p.x=clamp(p.x+p.vx*dt,26,974);p.y=clamp(p.y+p.vy*dt,30,570);
+ for(const prey of h.prey){prey.phase+=dt*.55;prey.x=clamp(prey.x+Math.cos(prey.phase+prey.y*.006)*prey.speed*dt,40,960);prey.y=clamp(prey.y+Math.sin(prey.phase+prey.x*.005)*prey.speed*dt,45,555);if(prey.x<=40||prey.x>=960||prey.y<=45||prey.y>=555)prey.phase+=Math.PI*.5;}
+ for(let i=h.effects.length-1;i>=0;i--){h.effects[i].life-=dt;if(h.effects[i].life<=0)h.effects.splice(i,1);}
+ if(p.stripeTime>0){p.stripeMark-=dt;if(p.stripeMark<=0){effect(h,'trail',p.x,p.y,2.5,{radius:27,color:'#ed9eff'});p.stripeMark=.16;}}
+ const b=h.boss;if(b&&b.status==='active'){
+  b.timer-=dt;b.contactTimer=Math.max(0,b.contactTimer-dt);
+  if(b.phase==='telegraph'&&b.timer<=0){b.phase='tongue';b.timer=.45;b.attackHit=false;effect(h,'tongue',b.x,b.y,.45,{toX:b.aimX,toY:b.aimY});}
+  else if(b.phase==='tongue'&&b.timer<=0){b.phase='rest';b.timer=2.6;log(h,'frog-open','The frog is resting. Its mouth is open — bite or use your skills!');}
+  else if(b.phase==='rest'&&b.timer<=0){b.cycle++;const oldX=b.x,oldY=b.y;b.x=clamp(600+Math.cos(b.cycle*2.3)*220,350,900);b.y=clamp(300+Math.sin(b.cycle*1.7)*180,100,500);effect(h,'hop',oldX,oldY,.7,{toX:b.x,toY:b.y});if(distance(p,b)<72)hurt(h,10,'The frog landed too close.');warnFrog(h);}
+  if(b.phase==='tongue'&&!b.attackHit&&lineDistance(p.x,p.y,b.x,b.y,b.aimX,b.aimY)<30){const damage=hurt(h,12,'The tongue caught your bug.');if(damage)b.attackHit=true;}
+  if(b.phase!=='rest'&&distance(p,b)<62&&b.contactTimer<=0){const damage=hurt(h,8,'You bumped the guarded frog.');if(damage)b.contactTimer=1;}
+  if(p.stripeTime>0&&b.phase==='rest'){p.stripeTick-=dt;const touches=distance(p,b)<104||h.effects.some(e=>e.type==='trail'&&distance(e,b)<78);if(touches&&p.stripeTick<=0){hitBoss(h,4+p.skills.stripe*2);p.stripeTick=.45;}}
+ }
+ return h;
+}
+function retry(h,rng=Math.random){const next=fresh(h.player.species,rng);next.player.skills={...h.player.skills};next.patterns=h.patterns.slice();next.totalMeals=h.totalMeals;next.perfectMeals=h.perfectMeals;next.victories=h.victories;next.bossRewarded=h.bossRewarded;next.eventId=h.eventId;next.events=h.events.slice();Object.assign(h,next);log(h,'retry','A fresh start. Your skills and collected patterns are preserved.');return {ok:true,message:'Ready for another run.'};}
+function normalize(raw){
+ if(!raw||typeof raw!=='object'||Array.isArray(raw))return fresh();const old=raw.player&&typeof raw.player==='object'?raw.player:{},h=fresh(species(old.species).id,()=>.5),p=h.player;
+ p.x=num(old.x,180,26,974);p.y=num(old.y,300,30,570);p.maxHp=100;p.hp=num(old.hp,100,0,100);p.facingX=num(old.facingX,1,-1,1);p.facingY=num(old.facingY,0,-1,1);const facingLength=Math.hypot(p.facingX,p.facingY);if(facingLength){p.facingX/=facingLength;p.facingY/=facingLength;}else p.facingX=1;
+ for(const s of SKILLS){p.skills[s.id]=whole(old.skills&&old.skills[s.id],0,0,3);p.cooldowns[s.id]=num(old.cooldowns&&old.cooldowns[s.id],0,0,8);}if(!SKILLS.some(s=>p.skills[s.id]))p.skills[species(p.species).skill]=1;
+ p.invulnerable=num(old.invulnerable,0,0,2);p.stripeTime=num(old.stripeTime,0,0,5);p.shellTime=num(old.shellTime,0,0,7);
+ h.totalMeals=whole(raw.totalMeals);h.perfectMeals=whole(raw.perfectMeals,0,0,h.totalMeals);h.time=num(raw.time,0,0,1e9);h.victories=whole(raw.victories);h.bossRewarded=raw.bossRewarded===true;h.status=['playing','dead','won'].includes(raw.status)?raw.status:'playing';if(p.hp===0)h.status='dead';if(h.status==='dead')p.hp=0;
+ h.patterns=Array.isArray(raw.patterns)?[...new Set(raw.patterns.filter(x=>typeof x==='string'&&SPECIES.some(s=>x.startsWith(s.id+':'))&&patternIds.includes(x.split(':')[1])))].slice(0,48):[];
+ if(Array.isArray(raw.prey)){const valid=raw.prey.filter(x=>x&&SPECIES.some(s=>s.id===x.species)&&patternIds.includes(x.pattern)).slice(0,20);if(valid.length)h.prey=valid.map((x,i)=>({id:'prey-'+(i+1),species:x.species,pattern:x.pattern,x:num(x.x,500,40,960),y:num(x.y,300,45,555),phase:num(x.phase,0,-1e9,1e9),speed:num(x.speed,24,12,40)}));}h.nextId=h.prey.length+1;SPECIES.forEach((s,i)=>{if(!h.prey.some(p=>p.species===s.id))h.prey.push(makePrey(h,i,()=>.5));});
+ const b=raw.boss;if(b&&typeof b==='object'&&['active','defeated'].includes(b.status)){h.boss={status:b.status,hp:num(b.hp,120,0,120),maxHp:120,x:num(b.x,800,100,900),y:num(b.y,300,80,520),phase:b.status==='defeated'?'defeated':'telegraph',timer:1.35,aimX:p.x,aimY:p.y,attackHit:false,contactTimer:0,cycle:whole(b.cycle)};h.stage='frog';if(h.boss.hp===0||b.status==='defeated'){h.boss.hp=0;h.boss.status='defeated';h.boss.phase='defeated';h.status='won';h.bossRewarded=true;}else if(h.status==='won')h.status='playing';}
+ else{h.boss=null;h.stage='meadow';if(h.status==='won')h.status='playing';}if(h.boss&&h.boss.status==='active')warnFrog(h);
+ h.bite=null;h.effects=[];h.events=[];h.eventId=whole(raw.eventId,1,1);log(h,'restored','Journey restored. Timing rings are cleared; the frog gives you a fresh warning.');return h;
+}
+return {WIDTH,HEIGHT,BITE_RANGE,SPECIES,SKILLS,fresh,normalize,step,beginBite,finishBite,useSkill,startBoss,retry,bossReady,learnedCount};
+});
+
+</script>
+<script nonce="__MOZCORP_NONCE__" data-moz-source="bug-world.inline.2">
+(function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.BugEngine=api;})(typeof globalThis!=='undefined'?globalThis:this,function(){
+'use strict';
+const SPECIES=[
+ {id:'roach',name:'Quark Roach',verb:'warps',color:'#b8f568',description:'Looks elsewhere and arrives there. Space is a suggestion.'},
+ {id:'stripe',name:'Ribbon Mite',verb:'stripes',color:'#ed9eff',description:'A wandering printing press with too many feet.'},
+ {id:'ladybug',name:'Ladybug',verb:'dots',color:'#ff7c8c',description:'Leaves little constellations wherever it goes.'},
+ {id:'pill',name:'Empathy',verb:'ripples',color:'#72e4da',description:'A gentle particle bug. Preservation rides along. The flower is still thirsty.'}
+];
+const PATTERNS=[
+ {id:'moss',name:'Mosscoat',rarity:'common',style:'solid',color:'#b8f568'},
+ {id:'ink',name:'Ink Dot',rarity:'common',style:'dots',color:'#ffd48a'},
+ {id:'ribbon',name:'Candy Stripe',rarity:'common',style:'stripes',color:'#f59ddf'},
+ {id:'rust',name:'Rust Speckle',rarity:'common',style:'speckle',color:'#e89a65'},
+ {id:'tide',name:'Tidal Bands',rarity:'uncommon',style:'stripes',color:'#78dfde'},
+ {id:'orchid',name:'Orchid Spots',rarity:'uncommon',style:'dots',color:'#c8a7ff'},
+ {id:'checker',name:'Checker Bloom',rarity:'uncommon',style:'checker',color:'#fff0aa'},
+ {id:'nebula',name:'Nebula Freckles',rarity:'rare',style:'stars',color:'#c6a3ff'},
+ {id:'aurora',name:'Aurora Ribbon',rarity:'rare',style:'rainbow',color:'#9bffe0'},
+ {id:'ghost',name:'Ghost Lace',rarity:'rare',style:'rings',color:'#e4ffff'},
+ {id:'eclipse',name:'Eclipse Eye',rarity:'mythic',style:'eclipse',color:'#ffd76b'},
+ {id:'paradox',name:'Impossible Plaid',rarity:'mythic',style:'paradox',color:'#ff9ded'}
+];
+const ZONES=[
+ {id:'crumblands',name:'Crumblands',color:'#b8f568',description:'Tiny ruins. Excellent crumbs.'},
+ {id:'neon-drain',name:'Neon Drain',color:'#f3a0ee',description:'Every puddle is a possible portal.'},
+ {id:'moss-cathedral',name:'Moss Cathedral',color:'#77e6d6',description:'A very small forest with very large feelings.'}
+];
+const UPGRADE_DEFS=[
+ {id:'lens',name:'Kindness Lens',cost:2,description:'One extra bit for each newly observed bug.'},
+ {id:'nursery',name:'Crumb Nursery',cost:2,description:'One extra bit per farm cycle.'},
+ {id:'prism',name:'Pattern Prism',cost:3,description:'More rare patterns from hatching and mutation.'}
+];
+const FORMAT='mozcorp-new-bug-world-v2';
+const MAX_BUGS=72,MAX_BITS=999999,MAX_LOG=40,FARM_MS=20000;
+const speciesIds=new Set(SPECIES.map(x=>x.id)),patternIds=new Set(PATTERNS.map(x=>x.id)),zoneIds=new Set(ZONES.map(x=>x.id));
+function integer(n,fallback,min=0,max=MAX_BITS){return typeof n==='number'&&Number.isFinite(n)?Math.min(max,Math.max(min,Math.floor(n))):fallback;}
+function boundedText(v,fallback='',max=180){return typeof v==='string'?v.slice(0,max):fallback;}
+function copy(v){return JSON.parse(JSON.stringify(v));}
+function tell(s,message,ok=true,extra={}){s.log.unshift(message);s.log=s.log.slice(0,MAX_LOG);return Object.assign({ok,message},extra);}
+function freshState(now=Date.now()){
+ const specimens=Array.from({length:13},(_,i)=>({id:'bug-'+(i+1),species:SPECIES[i%4].id,pattern:PATTERNS[i%7].id,genes:i===0?['SQUISHY','BACKWARDS']:[],scanned:false}));
+ return {version:2,hunt:null,bits:6,weird:7,zone:'crumblands',gen:0,hatches:0,nextId:14,champion:'Quark Roach',genes:['SQUISHY','BACKWARDS'],specimens,collection:[],flowerCare:0,lastWater:0,farm:{lastCollected:integer(now,Date.now(),0,Number.MAX_SAFE_INTEGER)},battle:null,lineage:[],upgrades:{points:6,installed:{},history:[]},log:['NEW! BUG WORLD! // Calculating wing vibrations. This may tickle.'],legacy:null};
+}
+function specimen(s,id){return s.specimens.find(x=>x.id===id);}
+function pattern(id){return PATTERNS.find(x=>x.id===id)||PATTERNS[0];}
+function roll(rng){const n=rng();return typeof n==='number'&&Number.isFinite(n)?Math.min(.999999999,Math.max(0,n)):0;}
+function choosePattern(rng,prism=false,guaranteed=false,excluding=''){
+ let pool=PATTERNS.filter(p=>p.id!==excluding&&(!guaranteed||p.rarity==='rare'||p.rarity==='mythic'));
+ const weights={common:prism?12:18,uncommon:8,rare:prism?5:2,mythic:prism?1.3:.4};
+ let value=roll(rng)*pool.reduce((sum,p)=>sum+weights[p.rarity],0);
+ for(const p of pool){value-=weights[p.rarity];if(value<0)return p.id;}return pool[pool.length-1].id;
+}
+function scan(s,id,now=Date.now()){
+ const b=specimen(s,id);if(!b)return tell(s,'That bug wandered out of reach.',false);
+ const key=b.species+':'+b.pattern,known=s.collection.some(x=>x.key===key),first=!b.scanned;
+ if(known&&!first)return tell(s,'Already observed. Try another bug or mutate this pattern.',false);
+ if(!known)s.collection.push({key,species:b.species,pattern:b.pattern,foundAt:integer(now,0,0,Number.MAX_SAFE_INTEGER)});
+ b.scanned=true;const reward=first?2+(s.upgrades.installed.lens?1:0):0;s.bits=Math.min(MAX_BITS,s.bits+reward);
+ return tell(s,(known?'Observed':'Discovered')+' '+pattern(b.pattern).name+' '+SPECIES.find(x=>x.id===b.species).name+(reward?' · +'+reward+' bits':''),true,{reward,newPattern:!known});
+}
+function hatch(s,rng=Math.random){
+ if(s.specimens.length>=MAX_BUGS)return tell(s,'The field is full. Start a new world to make room.',false);
+ if(s.bits<3)return tell(s,'Hatching needs 3 bits. Observe a bug or collect the farm.',false);
+ s.bits-=3;s.hatches++;const guaranteed=s.hatches%7===0;
+ const b={id:'bug-'+s.nextId++,species:SPECIES[Math.floor(roll(rng)*SPECIES.length)].id,pattern:choosePattern(rng,!!s.upgrades.installed.prism,guaranteed),genes:[],scanned:false};
+ s.specimens.push(b);return tell(s,'Hatched '+SPECIES.find(x=>x.id===b.species).name+' · '+pattern(b.pattern).name+(guaranteed?' // RARE PATTERN GUARANTEED':''),true,{bug:b,guaranteed});
+}
+function mutate(s,id,rng=Math.random){
+ const b=specimen(s,id);if(!b)return tell(s,'Select a bug first.',false);
+ if(s.bits<6)return tell(s,'Mutation needs 6 bits.',false);
+ s.bits-=6;const oldPattern=b.pattern;b.pattern=choosePattern(rng,!!s.upgrades.installed.prism,false,oldPattern);
+ const gene=['SQUISHY','BACKWARDS','LUMINOUS','STRIPED','POLKA','WARPED'][Math.floor(roll(rng)*6)];if(!b.genes.includes(gene))b.genes.push(gene);if(!s.genes.includes(gene))s.genes.push(gene);s.weird=Math.min(999,s.weird+1);
+ return tell(s,'Pattern shifted: '+pattern(oldPattern).name+' → '+pattern(b.pattern).name,true,{bug:b,oldPattern});
+}
+function farmReady(s,now=Date.now()) {return Math.min(5,Math.max(0,Math.floor((now-s.farm.lastCollected)/FARM_MS)));}
+function collectFarm(s,now=Date.now()){
+ const cycles=farmReady(s,now);if(!cycles)return tell(s,'Crumbs are growing. A harvest arrives every 20 seconds.',false);
+ const reward=cycles*(2+(s.upgrades.installed.nursery?1:0));s.bits=Math.min(MAX_BITS,s.bits+reward);s.farm.lastCollected=integer(now,Date.now(),0,Number.MAX_SAFE_INTEGER);
+ return tell(s,'FRAM::FARM harvested '+reward+' bits.',true,{reward});
+}
+function setZone(s,id){if(!zoneIds.has(id))return tell(s,'Unknown zone.',false);s.zone=id;return tell(s,'Arrived in '+ZONES.find(x=>x.id===id).name+'.');}
+function startBattle(s){if(s.battle&&s.battle.status==='active')return tell(s,'The Confusion Cloud is already here.',false);s.battle={status:'active',heat:55,clarity:25,care:50,energy:60,turns:0};return tell(s,'CONFUSION CLOUD // Cool the cloud or reach 85 clarity with 65 care.');}
+function battleAction(s,move){
+ const b=s.battle;if(!b||b.status!=='active')return tell(s,'Invite a Confusion Cloud first.',false);
+ if(!['clarify','care','warp'].includes(move))return tell(s,'Unknown battle move.',false);
+ const cost=move==='clarify'?12:move==='warp'?16:0;if(b.energy<cost)return tell(s,'Not enough energy. Care restores 6 energy.',false);
+ const effect={clarify:[-18,24,0,-12],care:[-12,0,18,6],warp:[-22,-5,0,-16]}[move];
+ ['heat','clarity','care','energy'].forEach((k,i)=>{b[k]=Math.max(0,Math.min(100,b[k]+effect[i]));});b.turns++;
+ if(b.heat===0||(b.clarity>=85&&b.care>=65)){b.status='won';s.bits=Math.min(MAX_BITS,s.bits+7);s.upgrades.points=Math.min(999,s.upgrades.points+2);s.weird=Math.min(999,s.weird+1);return tell(s,'Cloud understood. +7 bits · +2 upgrade points. Nobody had to be squashed.',true,{won:true});}
+ return tell(s,{clarify:'You untangle one thought.',care:'You make room for a feeling. +6 energy.',warp:'Quark Roach folds the cloud into a smaller problem.'}[move]);
+}
+function installUpgrade(s,id){
+ const u=UPGRADE_DEFS.find(x=>x.id===id);if(!u)return tell(s,'Unknown upgrade.',false);
+ if(s.upgrades.installed[id])return tell(s,'That upgrade is already installed.',false);
+ if(s.upgrades.points<u.cost)return tell(s,'Not enough upgrade points. Resolve a Confusion Cloud.',false);
+ s.upgrades.history.push({points:s.upgrades.points,cost:u.cost,installed:copy(s.upgrades.installed)});s.upgrades.history=s.upgrades.history.slice(-12);s.upgrades.points-=u.cost;s.upgrades.installed[id]=1;
+ return tell(s,u.name+' installed. Rollback is available.');
+}
+function rollbackUpgrade(s){const h=s.upgrades.history.pop();if(!h)return tell(s,'No upgrade to roll back.',false);const refund=typeof h.cost==='number'?h.cost:UPGRADE_DEFS.filter(u=>s.upgrades.installed[u.id]&&!h.installed[u.id]).reduce((sum,u)=>sum+u.cost,0);s.upgrades.points=Math.min(999,s.upgrades.points+refund);s.upgrades.installed=copy(h.installed);return tell(s,'Last upgrade rolled back. Cost refunded.');}
+function endWorld(s,now=Date.now()){
+ const old=copy(s),fresh=freshState(now);Object.assign(s,fresh);s.gen=old.gen+1;s.collection=old.collection;s.champion=old.champion;s.genes=old.genes;s.upgrades=old.upgrades;s.legacy=old.legacy;s.flowerCare=integer(old.flowerCare,0);s.lastWater=integer(old.lastWater,0,0,Number.MAX_SAFE_INTEGER);s.lineage=old.lineage.concat([{generation:old.gen,zone:old.zone,patterns:old.collection.length,bits:old.bits,ending:'An explicit ending. A new world can begin.'}]).slice(-100);s.log=old.log;
+ return tell(s,'WORLD '+(old.gen+1)+' ENDED → WORLD '+(s.gen+1)+' // The Bug-o-dex and your champion carry on.');
+}
+function cleanData(value,depth=0){
+ if(depth>20)throw new Error('Package nesting is too deep.');
+ if(value===null||typeof value==='boolean')return value;
+ if(typeof value==='number')return Number.isFinite(value)?value:null;
+ if(typeof value==='string')return value.slice(0,100000);
+ if(Array.isArray(value)){if(value.length>5000)throw new Error('Package array is too large.');return value.map(v=>cleanData(v,depth+1));}
+ if(value&&typeof value==='object'){const out={};for(const k of Object.keys(value)){if(['__proto__','prototype','constructor'].includes(k))continue;out[k]=cleanData(value[k],depth+1);}return out;}
+ return null;
+}
+function normalizeState(raw,now=Date.now()){
+ const s=freshState(now);if(!raw||typeof raw!=='object'||Array.isArray(raw))throw new Error('Missing world state.');
+ s.bits=integer(raw.bits,s.bits);s.weird=integer(raw.weird,s.weird,0,999);s.gen=integer(raw.gen,0,0,99999);s.hatches=integer(raw.hatches,0);s.flowerCare=integer(raw.flowerCare,0);s.lastWater=integer(raw.lastWater,0,0,Number.MAX_SAFE_INTEGER);s.champion=boundedText(raw.champion,'Quark Roach',80);s.zone=zoneIds.has(raw.zone)?raw.zone:'crumblands';
+ s.genes=Array.isArray(raw.genes)?[...new Set(raw.genes.filter(x=>typeof x==='string').map(x=>x.slice(0,30)))].slice(0,30):s.genes;
+ if(Array.isArray(raw.specimens)&&raw.specimens.length){s.specimens=raw.specimens.slice(0,MAX_BUGS).filter(x=>x&&speciesIds.has(x.species)&&patternIds.has(x.pattern)).map((x,i)=>({id:'bug-'+(i+1),species:x.species,pattern:x.pattern,scanned:x.scanned===true,genes:Array.isArray(x.genes)?x.genes.filter(y=>typeof y==='string').map(y=>y.slice(0,30)).slice(0,10):[]}));if(!s.specimens.length)s.specimens=freshState(now).specimens;}
+ s.nextId=s.specimens.length+1;
+ if(Array.isArray(raw.collection)){const seen=new Set();s.collection=raw.collection.slice(0,300).filter(x=>{if(!x||!speciesIds.has(x.species)||!patternIds.has(x.pattern))return false;const k=x.species+':'+x.pattern;if(seen.has(k))return false;seen.add(k);return true;}).map(x=>({key:x.species+':'+x.pattern,species:x.species,pattern:x.pattern,foundAt:integer(x.foundAt,0,0,Number.MAX_SAFE_INTEGER)}));}
+ if(raw.farm&&typeof raw.farm==='object')s.farm.lastCollected=integer(raw.farm.lastCollected,now,0,Math.max(0,now));
+ if(raw.battle&&['active','won'].includes(raw.battle.status)){s.battle={status:raw.battle.status,heat:integer(raw.battle.heat,55,0,100),clarity:integer(raw.battle.clarity,25,0,100),care:integer(raw.battle.care,50,0,100),energy:integer(raw.battle.energy,60,0,100),turns:integer(raw.battle.turns,0,0,99999)};}
+ if(raw.upgrades&&typeof raw.upgrades==='object'){s.upgrades.points=integer(raw.upgrades.points,6,0,999);for(const u of UPGRADE_DEFS)if(raw.upgrades.installed&&raw.upgrades.installed[u.id]===1)s.upgrades.installed[u.id]=1;s.upgrades.history=Array.isArray(raw.upgrades.history)?raw.upgrades.history.slice(-12).filter(x=>x&&typeof x==='object').map(x=>({points:integer(x.points,0,0,999),...(typeof x.cost==='number'?{cost:integer(x.cost,0,0,9)}:{}),installed:Object.fromEntries(UPGRADE_DEFS.filter(u=>x.installed&&x.installed[u.id]===1).map(u=>[u.id,1]))})):[];}
+ s.lineage=Array.isArray(raw.lineage)?raw.lineage.slice(-100).filter(x=>x&&typeof x==='object').map(x=>({generation:integer(x.generation,0,0,99999),zone:zoneIds.has(x.zone)?x.zone:'crumblands',patterns:integer(x.patterns,0,0,48),bits:integer(x.bits,0),ending:boundedText(x.ending,'A world ended.')})):[];
+ s.log=Array.isArray(raw.log)?raw.log.filter(x=>typeof x==='string').map(x=>x.slice(0,300)).slice(0,MAX_LOG):s.log;s.legacy=raw.legacy?cleanData(raw.legacy):null;s.hunt=raw.hunt&&typeof raw.hunt==='object'?cleanData(raw.hunt):null;return s;
+}
+function importPackage(input,now=Date.now()){
+ let p=input;if(typeof p==='string'){if(p.length>2e6)throw new Error('Package is too large (maximum 2 MB).');p=JSON.parse(p);}p=cleanData(p);
+ if(!p||typeof p!=='object')throw new Error('This is not a Bug World package.');
+ if(p.format===FORMAT){const s=normalizeState(p.state,now);tell(s,'World restored. Press Resume when you are ready.');return s;}
+ if(p.format==='mozcorp-bugworld-package-v1'){
+  if(!p.state||!p.state.bugWorld)throw new Error('Legacy package has no Bug World state.');
+  const old=p.state.bugWorld,s=freshState(now);s.bits=integer(old.bits,6);s.weird=integer(old.weird,7,0,999);s.champion=boundedText(old.champion,'Quark Roach',80);s.genes=Array.isArray(old.genes)?old.genes.filter(x=>typeof x==='string').map(x=>x.slice(0,30)).slice(0,30):s.genes;
+  const zoneMatch=ZONES.find(x=>x.name.toLowerCase()===String(old.zone||'').toLowerCase());if(zoneMatch)s.zone=zoneMatch.id;
+  s.gen=integer(p.state.newWorldLineage&&p.state.newWorldLineage.generation,0,0,99999);s.upgrades.points=integer(p.state.upgradeKit&&p.state.upgradeKit.points,6,0,999);s.legacy=p;
+  const count=integer(old.bugs,13,1,MAX_BUGS);s.specimens=Array.from({length:count},(_,i)=>({id:'bug-'+(i+1),species:SPECIES[i%4].id,pattern:PATTERNS[i%7].id,genes:i===0?s.genes.slice():[],scanned:false}));s.nextId=count+1;
+  tell(s,'Legacy world restored. Original fields and random-bug source preserved; scripts never run.');return s;
+ }
+ throw new Error('Unrecognized Bug World package format.');
+}
+function exportPackage(s){return {format:FORMAT,name:'NEW! Bug World!',exported_at:new Date().toISOString(),contract:{...(s.legacy&&s.legacy.contract?cleanData(s.legacy.contract):{}),import_behavior:'RESTORE ONLY // NEVER AUTORUN',upgrade_kit:'GAME STATE ONLY // BOUNDED // MANUAL START // ROLLBACK',story_exit:'ONE-WAY PER WORLD // EXPLICIT ENDING → NEW WORLD HANDOFF ALLOWED',pov:'SIMULATED ECHOES ONLY // DOES NOT DUPLICATE REAL CONSCIOUSNESS'},state:cleanData(s)};}
+return {SPECIES,PATTERNS,ZONES,UPGRADE_DEFS,FORMAT,MAX_BUGS,FARM_MS,freshState,normalizeState,scan,hatch,mutate,farmReady,collectFarm,setZone,startBattle,battleAction,installUpgrade,rollbackUpgrade,endWorld,importPackage,exportPackage};
+});
+
+</script>
+<script nonce="__MOZCORP_NONCE__" data-moz-source="bug-world.inline.3">
+'use strict';
+const E=BugEngine, $=id=>document.getElementById(id), testSuffix=new URLSearchParams(location.search).has('test')?'.test':'', SKEY='mozcorp.bugworld.patterns.v2'+testSuffix, LOCK='mozcorp.bugworld.observer.v2'+testSuffix;
+const token=Date.now()+'-'+Math.random().toString(36).slice(2), reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const sp=id=>E.SPECIES.find(x=>x.id===id)||E.SPECIES[0], pat=id=>E.PATTERNS.find(x=>x.id===id)||E.PATTERNS[0];
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let state=E.freshState(), paused=true, activeTab='field', selected='bug-1', dirty=false, storageOK=true, toastTimer, flowerFlash=0;
+try{const saved=MozStore.local.getItem(SKEY);if(saved){state=E.importPackage(saved);paused=true;}else{state.log.unshift('NEW! BUG WORLD! // Calculating wing vibrations. This may tickle.');}MozStore.local.setItem(LOCK,token);}catch(e){storageOK=false;}
+const positions=new Map(), trails=[], portals=[];let time=0,lastFrame=0,lastPaint=0,pointer=null,width=1,height=1;
+const canvas=$('world'),ctx=canvas.getContext('2d'), portrait=$('portrait'),pc=portrait.getContext('2d'), ec=$('empathy').getContext('2d');
+function toast(s){$('toast').textContent=s;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),4200);}
+function own(){try{return MozStore.local.getItem(LOCK)===token;}catch(e){return true;}}
+function claim(restore=true){try{if(restore&&!own()){const saved=MozStore.local.getItem(SKEY);if(saved){state=E.importPackage(saved);positions.clear();}}MozStore.local.setItem(LOCK,token);}catch(e){} }
+function save(){if(!own())return;try{MozStore.local.setItem(SKEY,JSON.stringify(E.exportPackage(state)));$('save-status').textContent='● SAVED HERE';dirty=false;}catch(e){storageOK=false;$('save-status').textContent='USE SAVE FILE';}}
+function act(fn,...args){claim();const r=fn(state,...args);dirty=true;sync();save();if(r.message)toast(r.message);return r;}
+function setPaused(value){paused=value;$('pause').textContent=paused?'Resume':'Pause';$('global-pause').textContent=paused?'Resume motion':'Pause motion';$('live').textContent=paused?'PAUSED':'LIVING';$('live').style.color=paused?'#b1b5a2':'var(--acid)';}
+function fit(c,h){const box=c.getBoundingClientRect(),dpr=Math.min(devicePixelRatio||1,2);const w=Math.max(1,box.width),hh=Math.max(1,h||box.height);if(c.width!==Math.round(w*dpr)||c.height!==Math.round(hh*dpr)){c.width=Math.round(w*dpr);c.height=Math.round(hh*dpr);}c.getContext('2d').setTransform(dpr,0,0,dpr,0,0);return {w,h:hh};}
+function pos(b,i){if(!positions.has(b.id)){const angle=i*2.39996;positions.set(b.id,{x:.5+Math.cos(angle)*(.18+(i%3)*.095),y:.5+Math.sin(angle)*(.17+(i%4)*.055),a:angle,speed:.015+Math.random()*.014,phase:Math.random()*6,lastWarp:-20,trail:0});}return positions.get(b.id);}
+function oval(c,x,y,rx,ry,fill,stroke){c.beginPath();c.ellipse(x,y,rx,ry,0,0,Math.PI*2);if(fill){c.fillStyle=fill;c.fill();}if(stroke){c.strokeStyle=stroke;c.stroke();}}
+function line(c,x,y,xx,yy,color,w=1){c.strokeStyle=color;c.lineWidth=w;c.beginPath();c.moveTo(x,y);c.lineTo(xx,yy);c.stroke();}
+function drawBug(c,b,x,y,size,angle,t=0){const p=pat(b.pattern),kind=b.species,col=p.color;c.save();c.translate(x,y);c.rotate(angle);c.lineCap='round';
+ const rare=p.rarity==='rare'||p.rarity==='mythic';if(rare){c.shadowColor=col;c.shadowBlur=12;}const bodyY=kind==='ladybug'?size*.8:size;
+ for(let i=0;i<3;i++){let yy=(i-1)*size*.6,wiggle=Math.sin(t*9+i)*size*.12;for(const d of [-1,1]){line(c,d*size*.46,yy,d*size*.95,yy+wiggle,col,1.5);line(c,d*size*.95,yy+wiggle,d*size*1.2,yy+size*.34+wiggle,col,1.5);}}
+ c.shadowBlur=0;oval(c,0,0,size*(kind==='stripe'?.48:.67),bodyY,col,'#102319');
+ c.save();c.beginPath();c.ellipse(0,0,size*(kind==='stripe'?.48:.64),bodyY*.96,0,0,Math.PI*2);c.clip();
+ const dark='#1a3224';c.fillStyle=dark;c.strokeStyle=dark;c.lineWidth=Math.max(1,size*.13);
+ if(p.style==='stripes'||kind==='stripe'){for(let y=-size;y<size;y+=size*.45){line(c,-size,y,size,y+size*.25,dark,size*.16);}}
+ if(['dots','speckle','stars'].includes(p.style)||kind==='ladybug'){for(let i=0;i<7;i++){const a=i*2.4,rr=size*(i%2?.42:.63);oval(c,Math.cos(a)*rr,Math.sin(a)*rr,size*(p.style==='speckle'?.09:.15),size*(p.style==='stars'?.1:.15),dark);}}
+ if(p.style==='solid'||kind==='pill'){for(let y=-size*.65;y<size;y+=size*.35){c.beginPath();c.ellipse(0,y,size*.7,size*.25,0,0,Math.PI);c.stroke();}}
+ if(['checker','paradox'].includes(p.style)){for(let i=-3;i<3;i++)for(let j=-4;j<4;j++)if((i+j)%2===0){c.fillStyle=p.style==='paradox'&&j%2?'#6e569e':dark;c.fillRect(i*size*.35,j*size*.35,size*.35,size*.35);}}
+ if(p.style==='rainbow'){['#e8ee75','#ff95ba','#b2a2ff','#6ceac1'].forEach((cc,i)=>line(c,-size,-size+i*size*.55,size,-size+i*size*.55,cc,size*.28));}
+ if(['rings','eclipse'].includes(p.style)){for(let i=3;i>=1;i--){c.beginPath();c.ellipse(0,0,i*size*.19,i*size*.24,0,0,Math.PI*2);c.stroke();}if(p.style==='eclipse')oval(c,0,0,size*.17,size*.24,dark);}
+ c.restore();line(c,0,-bodyY*.65,0,bodyY*.85,'#203323',1);oval(c,0,-bodyY,size*.37,size*.32,'#21382a',col);for(const d of [-1,1]){line(c,d*size*.15,-bodyY*1.15,d*size*.5,-bodyY*1.7,col,1);oval(c,d*size*.18,-bodyY*1.12,Math.max(1.5,size*.07),Math.max(1.5,size*.07),'#e9f5c5');}
+ if(kind==='pill'){oval(c,size*.5,size*.3,size*.19,size*.25,'#e7efc9');oval(c,size*.53,size*.25,size*.035,size*.035,'#102319');}c.restore();
+}
+function drawField(dt){const dim=fit(canvas);width=dim.w;height=dim.h;const bg=state.zone==='neon-drain'?'#232135':state.zone==='moss-cathedral'?'#18312a':'#1c2b22';ctx.fillStyle=bg;ctx.fillRect(0,0,width,height);
+ ctx.strokeStyle=state.zone==='neon-drain'?'#393249':'#2a3d2d';ctx.lineWidth=.6;for(let x=0;x<width;x+=32){line(ctx,x,0,x,height,ctx.strokeStyle,.6);}for(let y=0;y<height;y+=32){line(ctx,0,y,width,y,ctx.strokeStyle,.6);}
+ // A little topographic garden, drawn by the field itself.
+ ctx.strokeStyle='#597447';ctx.globalAlpha=.16;for(let j=0;j<5;j++){ctx.beginPath();ctx.ellipse(width*.17,height*.68,65+j*15,90+j*14,-.6,0,7);ctx.stroke();ctx.beginPath();ctx.ellipse(width*.91,height*.14,65+j*18,62+j*13,.5,0,7);ctx.stroke();}ctx.globalAlpha=1;
+ for(let i=0;i<53;i++){const xx=((i*167.21)%997)/997*width,yy=((i*311.77)%991)/991*height;ctx.fillStyle=i%3?'#4b6039':'#b7ba6c';ctx.globalAlpha=.45;ctx.fillRect(xx,yy,i%4===0?3:1.5,i%4===0?3:1.5);}ctx.globalAlpha=1;
+ const labelColor=state.zone==='neon-drain'?'#b195c5':'#718a5f';ctx.font='10px Consolas,monospace';ctx.fillStyle=labelColor;ctx.fillText('CRUMB DEPOSIT',width*.12,height*.87);ctx.fillText('???',width*.84,height*.23);
+ for(let i=trails.length-1;i>=0;i--){const tr=trails[i];if(dt)tr.life-=dt;if(tr.life<=0){trails.splice(i,1);continue;}ctx.globalAlpha=Math.min(.4,tr.life/12);if(tr.type==='dot')oval(ctx,tr.x*width,tr.y*height,tr.size,tr.size,tr.color);else{ctx.save();ctx.translate(tr.x*width,tr.y*height);ctx.rotate(tr.a);line(ctx,-8,-4,8,-4,tr.color,2);line(ctx,-8,2,8,2,tr.color,2);ctx.restore();}}ctx.globalAlpha=1;
+ state.specimens.forEach((b,i)=>{const p=pos(b,i),oldX=p.x,oldY=p.y;const isSel=b.id===selected;
+ if(dt){p.a+=Math.sin(time*.6+p.phase)*dt*.6;p.x+=Math.sin(p.a)*p.speed*dt;p.y-=Math.cos(p.a)*p.speed*dt;if(p.x<.07||p.x>.94){p.a=-p.a;p.x=Math.max(.07,Math.min(.94,p.x));}if(p.y<.12||p.y>.88){p.a=Math.PI-p.a;p.y=Math.max(.12,Math.min(.88,p.y));}
+ if(b.species==='roach'&&time-p.lastWarp>6&&((pointer&&Math.hypot(pointer.x-p.x*width,pointer.y-p.y*height)<65)||Math.sin(time*.25+i)>.9996)){portals.push({x:p.x,y:p.y,life:1,color:pat(b.pattern).color});p.x=.1+Math.random()*.8;p.y=.16+Math.random()*.64;p.lastWarp=time;portals.push({x:p.x,y:p.y,life:1,color:pat(b.pattern).color});}
+ p.trail+=dt;if(p.trail>.55&&(b.species==='stripe'||b.species==='ladybug')){trails.push({x:oldX,y:oldY,a:p.a,type:b.species==='ladybug'?'dot':'stripe',size:2.5+i%3,life:8,color:pat(b.pattern).color});p.trail=0;} }
+ const size=11+(i%3)*3;if(isSel){ctx.strokeStyle='#d2f66c';ctx.lineWidth=1;ctx.setLineDash([3,5]);ctx.beginPath();ctx.arc(p.x*width,p.y*height,size*2.15,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);}drawBug(ctx,b,p.x*width,p.y*height,size,p.a,time);
+ if(isSel||pat(b.pattern).rarity==='mythic'){ctx.font='10px Consolas,monospace';ctx.textAlign='center';ctx.fillStyle=isSel?'#d2f66c':'#ed99bd';ctx.fillText(isSel?sp(b.species).name.toUpperCase():'✧ MYTHIC',p.x*width,p.y*height+size*2.95);ctx.textAlign='left';}
+ });
+ for(let i=portals.length-1;i>=0;i--){const p=portals[i];p.life-=dt;if(p.life<=0){portals.splice(i,1);continue;}ctx.globalAlpha=p.life;ctx.strokeStyle=p.color;ctx.lineWidth=2;ctx.beginPath();ctx.ellipse(p.x*width,p.y*height,30*(1-p.life)+4,45*(1-p.life)+7,.4,0,Math.PI*2);ctx.stroke();}ctx.globalAlpha=1;
+ if(trails.length>1200)trails.splice(0,trails.length-1200);
+}
+function drawPortrait(){const b=state.specimens.find(x=>x.id===selected)||state.specimens[0];const dim=fit(portrait);pc.clearRect(0,0,dim.w,dim.h);pc.strokeStyle='#3b5038';pc.lineWidth=1;pc.beginPath();pc.arc(dim.w/2,dim.h/2,52,0,7);pc.stroke();line(pc,dim.w/2-65,dim.h/2,dim.w/2+65,dim.h/2,'#2c402d');line(pc,dim.w/2,dim.h/2-58,dim.w/2,dim.h/2+58,'#2c402d');drawBug(pc,b,dim.w/2,dim.h/2+6,26,.45,time*.4);}
+function drawEmpathy(){const c=$('empathy'),dim=fit(c);ec.fillStyle='#0d1511';ec.fillRect(0,0,dim.w,dim.h);ec.save();ec.translate(dim.w/2-dim.h/2,0);ec.scale(dim.h/400,dim.h/400);ec.fillStyle='#a8e2c8';ec.globalAlpha=.7;const t=time*.5;for(let i=0;i<20000;i+=3){const y=i/885,k=(6+3*Math.sin(y+4))*Math.cos(i/7),e=y/5-13,d=Math.hypot(k,e)-6.6,q=3*Math.sin(k*2)+k*y/25*(9+2*Math.sin(e*6-d*5+t*2)),cc=d-t;const x=q+30*Math.cos(cc)+200,yy=q*Math.sin(cc)+d*39;ec.fillRect(x,yy,1,1);}ec.restore();ec.globalAlpha=1;const fx=dim.w*.82,fy=dim.h*.72;line(ec,fx,fy,fx,fy-35,'#a7c47b',2);for(let i=0;i<6;i++){const a=i*Math.PI/3;oval(ec,fx+Math.cos(a)*8,fy-40+Math.sin(a)*8,6,6,flowerFlash>time?'#aedff8':'#ed99bd');}oval(ec,fx,fy-40,4,4,'#efe89d');ec.fillStyle='#99b5a0';ec.font='10px Consolas,monospace';ec.fillText('EMPATHY + PRESERVATION',14,23);ec.fillText('STILL THIRSTY',Math.max(10,fx-38),fy+20);if(flowerFlash>time){for(let j=0;j<7;j++)oval(ec,fx-20+j*7,fy-80+(time*50+j*13)%40,1.5,3,'#a3e8ef');}}
+let fieldDelta=0;
+function frame(now){const dt=lastFrame?Math.min(.05,(now-lastFrame)/1000):0;lastFrame=now;if(document.hidden){fieldDelta=0;requestAnimationFrame(frame);return;}const delta=paused?0:dt;if(delta)time+=delta;fieldDelta+=activeTab==='field'?delta:0;window.HuntView?.update(dt);if(now-lastPaint>33){if(activeTab==='field'){drawField(Math.min(.1,fieldDelta));drawPortrait();}fieldDelta=0;if(activeTab==='lab')drawEmpathy();lastPaint=now;}requestAnimationFrame(frame);}
+function drawStaticBug(c,b){const dim=fit(c);const cx=c.getContext('2d');cx.clearRect(0,0,dim.w,dim.h);drawBug(cx,b,dim.w/2,dim.h/2+5,16,.35,0);}
+function renderDex(){const found=new Set(state.collection.map(x=>x.pattern));$('dex-count').textContent=found.size+' / '+E.PATTERNS.length+' patterns · '+state.collection.length+' species combinations';$('dex-grid').innerHTML=E.PATTERNS.map((p,i)=>{const yes=found.has(p.id);return '<article class="dex-card '+(yes?'':'locked')+'"><div class="specimen-head"><span class="eyebrow">NO. '+String(i+1).padStart(2,'0')+'</span><span class="pill">'+p.rarity+'</span></div><canvas data-pattern="'+p.id+'" aria-label="'+(yes?esc(p.name):'Undiscovered pattern')+'"></canvas><h3>'+(yes?esc(p.name):'Unknown pattern')+'</h3><p>'+(yes?state.collection.filter(x=>x.pattern===p.id).length+' species recorded':p.rarity==='rare'||p.rarity==='mythic'?'Keep hatching. Keep looking.':'Waiting in the field.')+'</p></article>';}).join('');document.querySelectorAll('[data-pattern]').forEach(c=>{if(found.has(c.dataset.pattern))drawStaticBug(c,{species:'ladybug',pattern:c.dataset.pattern});else{const d=fit(c),cc=c.getContext('2d');cc.font='28px Consolas';cc.textAlign='center';cc.fillStyle='#58634e';cc.fillText('?',d.w/2,49);}});
+ $('specimen-grid').innerHTML=state.specimens.map(b=>'<button class="dex-card" data-select="'+b.id+'"><canvas data-specimen="'+b.id+'" aria-hidden="true"></canvas><h3>'+esc(sp(b.species).name)+'</h3><p>'+esc(pat(b.pattern).name)+' · '+esc(pat(b.pattern).rarity)+'</p></button>').join('');document.querySelectorAll('[data-specimen]').forEach(c=>drawStaticBug(c,state.specimens.find(x=>x.id===c.dataset.specimen)));document.querySelectorAll('[data-select]').forEach(btn=>btn.onclick=()=>{selected=btn.dataset.select;showTab('field');sync();});}
+function syncLab(){const b=state.battle;const values=b||{heat:55,clarity:25,care:50,energy:60};$('battle-meters').innerHTML=['heat','clarity','care','energy'].map(k=>'<label class="meter">'+k.toUpperCase()+'<progress max="100" value="'+values[k]+'"></progress><span>'+values[k]+'</span></label>').join('');$('battle-copy').textContent=b?b.status==='won'?'The cloud understands. +7 bits and +2 upgrade points earned.':('Turn '+b.turns+' · Cool the cloud to 0 heat, or reach 85 clarity with 65 care.'):'A cloud has misplaced the difference between a source and a spoon. Help it find clarity.';$('start-battle').disabled=!!b&&b.status==='active';$('start-battle').textContent=b&&b.status==='won'?'Meet another cloud':'Meet the cloud';document.querySelectorAll('[data-move]').forEach(btn=>btn.disabled=!b||b.status!=='active');$('upgrade-points').textContent=state.upgrades.points+' points available · earn more by helping the cloud';$('upgrades').innerHTML=E.UPGRADE_DEFS.map(u=>'<div class="upgrade"><div><strong>'+u.name+'</strong><p>'+u.description+'</p></div><button class="small" data-upgrade="'+u.id+'" '+(state.upgrades.installed[u.id]||state.upgrades.points<u.cost?'disabled':'')+'>'+(state.upgrades.installed[u.id]?'Installed':u.cost+' pts')+'</button></div>').join('');document.querySelectorAll('[data-upgrade]').forEach(b=>b.onclick=()=>act(E.installUpgrade,b.dataset.upgrade));$('rollback').disabled=!state.upgrades.history.length;$('flower-status').textContent=state.flowerCare?state.flowerCare+' kind thing'+(state.flowerCare===1?'':'s')+'. Still thirsty.':'One kind thing at a time.';}
+function sync(){const focusBug=document.activeElement?.dataset?.observe;let b=state.specimens.find(x=>x.id===selected);if(!b){b=state.specimens[0];selected=b.id;}const p=pat(b.pattern);$('bits').textContent=state.bits;$('population').textContent=state.specimens.length;$('patterns').innerHTML=new Set(state.collection.map(x=>x.pattern)).size+'<span style="font-size:17px;color:var(--muted)"> / '+E.PATTERNS.length+'</span>';$('world-gen').textContent=String(state.gen+1).padStart(3,'0');$('zone').value=state.zone;$('weather').textContent=state.zone==='neon-drain'?'GLITCH RAIN':state.zone==='moss-cathedral'?'GLOW POLLEN':'SPORE DRIFT';$('bug-name').textContent=sp(b.species).name;$('pattern-name').textContent='Pattern / '+p.name;$('behavior').textContent=sp(b.species).description;$('rarity').textContent=p.rarity;$('rarity').style.color=['rare','mythic'].includes(p.rarity)?'var(--pink)':'var(--acid)';$('genes').innerHTML=(b.genes.length?b.genes:['ONE OF ONE']).map(x=>'<span>'+esc(x)+'</span>').join('');const recorded=state.collection.some(x=>x.key===b.species+':'+b.pattern);$('scan-status').textContent=recorded?'PATTERN RECORDED':'UNRECORDED';$('scan').textContent=b.scanned?'Record pattern':'Observe +'+(2+(state.upgrades.installed.lens?1:0))+' bits';$('scan').disabled=recorded&&b.scanned;$('mutate').disabled=state.bits<6;$('champion').textContent=state.champion;$('hatch').disabled=state.bits<3||state.specimens.length>=E.MAX_BUGS;$('rare-progress').textContent=(7-state.hatches%7)+' hatch'+((7-state.hatches%7)===1?'':'es')+' until guaranteed rare.';$('log').textContent=state.log[0]||'The world is quietly weird.';$('roster').innerHTML=state.specimens.map((bug,i)=>'<button data-observe="'+bug.id+'" aria-pressed="'+(selected===bug.id)+'" title="'+esc(pat(bug.pattern).name)+'">'+(i+1)+' · '+esc(sp(bug.species).name)+'</button>').join('');document.querySelectorAll('[data-observe]').forEach(btn=>btn.onclick=()=>observe(btn.dataset.observe));$('chapter').textContent='WORLD '+String(state.gen+1).padStart(3,'0');$('lineage-list').innerHTML=state.lineage.length?state.lineage.slice().reverse().map(x=>'<article><h3>WORLD '+String(x.generation+1).padStart(3,'0')+'</h3><p>'+esc(E.ZONES.find(z=>z.id===x.zone)?.name||x.zone)+' · '+x.patterns+' discoveries carried forward</p></article>').join(''):'<p>No endings yet. This chapter is still being written.</p><p style="font:36px var(--mono);color:var(--acid)">␀ → ● → µ</p>';syncLab();if(activeTab==='dex')renderDex();updateFarm();setPaused(paused);if(focusBug){const replacement=[...document.querySelectorAll('[data-observe]')].find(el=>el.dataset.observe===focusBug);replacement?.focus({preventScroll:true});}}
+function showTab(id){activeTab=id;document.querySelectorAll('[data-tab]').forEach(btn=>{const yes=btn.dataset.tab===id;btn.setAttribute('aria-selected',yes);btn.tabIndex=yes?0:-1;});document.querySelectorAll('.page').forEach(el=>el.hidden=el.id!=='page-'+id);if(id==='hunt')window.HuntView?.refresh();else window.HuntView?.clear();if(id==='dex')renderDex();if(id==='lab'){syncLab();drawEmpathy();}if(id==='field'){drawField(0);drawPortrait();}}
+function observe(id){selected=id;const b=state.specimens.find(x=>x.id===id);if(!b)return;const r=act(E.scan,id);if(r.ok){const pp=pos(b,state.specimens.indexOf(b));portals.push({x:pp.x,y:pp.y,life:1,color:pat(b.pattern).color});}}
+function updateFarm(){const cycles=E.farmReady(state),ready=cycles*(2+(state.upgrades.installed.nursery?1:0));$('farm-count').textContent=ready+' bits ready';$('farm-progress').style.width=(cycles?100:Math.min(100,Math.max(0,(Date.now()-state.farm.lastCollected)/E.FARM_MS*100)))+'%';$('harvest').disabled=cycles===0;}
+$('zone').innerHTML=E.ZONES.map(z=>'<option value="'+z.id+'">'+z.name+' ↗</option>').join('');$('zone').onchange=()=>{act(E.setZone,$('zone').value);trails.length=0;portals.length=0;};
+document.querySelectorAll('[data-tab]').forEach((btn,i)=>{btn.id='tab-'+btn.dataset.tab;btn.setAttribute('aria-controls','page-'+btn.dataset.tab);$('page-'+btn.dataset.tab).setAttribute('aria-labelledby',btn.id);btn.onclick=()=>showTab(btn.dataset.tab);btn.onkeydown=e=>{const tabs=[...document.querySelectorAll('[data-tab]')];let next;if(e.key==='ArrowRight')next=(i+1)%tabs.length;if(e.key==='ArrowLeft')next=(i+tabs.length-1)%tabs.length;if(e.key==='Home')next=0;if(e.key==='End')next=tabs.length-1;if(next!==undefined){e.preventDefault();showTab(tabs[next].dataset.tab);tabs[next].focus();}};});
+canvas.addEventListener('pointermove',e=>{if(e.pointerType==='touch')return;const r=canvas.getBoundingClientRect();pointer={x:e.clientX-r.left,y:e.clientY-r.top};});canvas.addEventListener('pointerleave',()=>pointer=null);canvas.addEventListener('pointerdown',e=>{const r=canvas.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;let near=null,dist=44;state.specimens.forEach((b,i)=>{const p=pos(b,i),d=Math.hypot(p.x*width-x,p.y*height-y);if(d<dist){dist=d;near=b;}});if(near)observe(near.id);else toast('Find a wandering bug, or choose one below the field.');});
+$('hatch').onclick=()=>{const r=act(E.hatch);if(r.ok){selected=r.bug.id;sync();}};$('scan').onclick=()=>observe(selected);$('mutate').onclick=()=>act(E.mutate,selected);$('harvest').onclick=()=>act(E.collectFarm);function toggleMotion(){if(paused){claim();sync();}setPaused(!paused);} $('pause').onclick=toggleMotion;$('global-pause').onclick=toggleMotion;
+$('start-battle').onclick=()=>act(E.startBattle);document.querySelectorAll('[data-move]').forEach(b=>b.onclick=()=>act(E.battleAction,b.dataset.move));$('rollback').onclick=()=>act(E.rollbackUpgrade);
+$('water').onclick=()=>{claim();state.flowerCare=(state.flowerCare||0)+1;flowerFlash=time+3;state.log.unshift('Empathy carries Preservation. The flower drinks. Still thirsty.');sync();save();toast('A little water. A little preservation.');};
+$('terminal').onsubmit=e=>{e.preventDefault();const cmd=$('command').value.trim().toUpperCase();const texts={TIMETIME:'TIME IS SOUP. The clock politely declines to argue. [ YET ]',KNOWN:'??? → KNOWN UNKNOWN → ???. Stable confusion mapped. The unknown knows it is unknown.',DUMBISM:'SOURCE: potato. EVIDENCE: spoon. TEST: cheese. CARE: keep the original. The spoon has been promoted.',VOID:'void = void. A tiny dot disagrees.',TRUTH:'THE TRUTH FROM MEMORY: Empathy. Preservation. The flower. Nobody gets left behind.'};$('terminal-out').textContent=cmd==='XEDOC'?'The fictional L.A.E.U. un-signs itself. The dot may leave.':texts[cmd]||'UNKNOWN MAP: '+(cmd||'???')+' is now a known unknown.';$('command').value='';};
+$('help').onclick=()=>$('guide').showModal();$('close-guide').onclick=()=>$('guide').close();$('end-world').onclick=()=>$('confirm-end').showModal();$('cancel-end').onclick=()=>$('confirm-end').close();$('do-end').onclick=()=>{act(E.endWorld);positions.clear();trails.length=0;portals.length=0;selected=state.specimens[0].id;$('confirm-end').close();showTab('hunt');sync();};
+$('export').onclick=()=>{const data=JSON.stringify(E.exportPackage(state),null,2),url=URL.createObjectURL(new Blob([data],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='NEW-Bug-World-world-'+(state.gen+1)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('World package saved. Patterns and the original source travel with it.');};$('import').onclick=()=>$('file').click();$('file').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>2e6)throw Error('Choose a Bug World JSON smaller than 2 MB.');const next=E.importPackage(await f.text());claim(false);state=next;paused=true;positions.clear();trails.length=0;portals.length=0;selected=state.specimens[0].id;sync();save();showTab('hunt');toast('World restored and paused. Press Resume when ready.');}catch(err){toast('Import stopped: '+err.message);}e.target.value='';};
+addEventListener('storage',e=>{if(e.key===LOCK&&e.newValue!==token){setPaused(true);$('save-status').textContent='OTHER OBSERVER ACTIVE';toast('Another Bug World tab is observing. This field is paused.');}if(e.key===SKEY&&!own()&&e.newValue){try{state=E.importPackage(e.newValue);positions.clear();sync();}catch(err){}}});addEventListener('beforeunload',()=>{if(dirty)save();});document.addEventListener('visibilitychange',()=>{lastFrame=0;if(document.hidden&&dirty)save();});addEventListener('resize',()=>{if(activeTab==='dex')renderDex();});
+sync();showTab('field');if(!storageOK)$('save-status').textContent='USE SAVE FILE';setInterval(updateFarm,1000);requestAnimationFrame(frame);
+
+</script>
+<script nonce="__MOZCORP_NONCE__" data-moz-source="bug-world.inline.4">
+(function(){
+'use strict';
+const H=HuntEngine,hc=$('hunt-canvas'),g=hc.getContext('2d'),keys=new Set();
+const species=id=>H.SPECIES.find(s=>s.id===id)||H.SPECIES[0],basePatterns={roach:'moss',stripe:'ribbon',ladybug:'ink',pill:'tide'};
+let normalized=null,target=null,held=null,lastEvent=0,lastHUD=0,saveClock=0,rosterKey='',cam={x:0,y:0,scale:1};
+const stroke='#d5ebae';
+function hstate(){if(state.hunt&&state.hunt!==normalized){state.hunt=H.normalize(state.hunt);normalized=state.hunt;target=null;keys.clear();held=null;lastEvent=0;rosterKey='';}return state.hunt;}
+function clearInput(){keys.clear();target=null;held=null;}
+function allowed(){return activeTab==='hunt'&&!paused&&!document.hidden&&!document.querySelector('dialog[open]')&&own();}
+function report(){const h=hstate();if(!h)return;let changed=false;for(const e of h.events){if(e.id<=lastEvent)continue;lastEvent=e.id;$('hunt-event').textContent=e.message;if(e.type==='meal'){const key=e.species+':'+e.pattern;if(!state.collection.some(x=>x.key===key))state.collection.push({key,species:e.species,pattern:e.pattern,foundAt:Date.now()});state.bits=Math.min(999999,state.bits+(e.perfect?3:1));state.log.unshift(e.message);state.log=state.log.slice(0,40);changed=true;target=null;rosterKey='';}if(e.type==='victory'&&e.firstVictory){state.bits=Math.min(999999,state.bits+30);state.upgrades.points=Math.min(999,state.upgrades.points+5);state.log.unshift('BOSS FROG DEFEATED // +30 Bug Bits · +5 upgrade points');changed=true;}if(e.type==='death'||e.type==='victory')clearInput();}if(changed){dirty=true;sync();save();}}
+function run(fn,...args){if(!allowed()){toast('Resume the adventure first.');return;}claim();const h=hstate();if(!h)return;const r=fn(h,...args);report();dirty=true;save();hud();if(r?.message)$('hunt-event').textContent=r.message;return r;}
+function start(id){claim();state.hunt=H.fresh(id);normalized=state.hunt;target=null;lastEvent=0;rosterKey='';setPaused(false);dirty=true;save();hud();draw(0);hc.focus({preventScroll:true});}
+function nearest(h){return h.prey.reduce((a,b)=>!a||Math.hypot(b.x-h.player.x,b.y-h.player.y)<Math.hypot(a.x-h.player.x,a.y-h.player.y)?b:a,null);}
+function chosen(h){if(target?.id==='frog')return h.boss;if(target?.id)return h.prey.find(p=>p.id===target.id);return nearest(h);}
+function eat(){const h=hstate();if(!h)return;if(h.bite){run(H.finishBite);return;}const p=chosen(h);let id=target?.id;if(h.boss?.status==='active'&&Math.hypot(h.boss.x-h.player.x,h.boss.y-h.player.y)<100&&h.boss.phase==='rest')id='frog';run(H.beginBite,id||p?.id);}
+function targetPrey(id){if(!allowed())return toast('Resume to hunt.');target={id};hc.focus({preventScroll:true});hud();}
+function hud(){const h=hstate();$('starter-screen').hidden=!!h;$('hunt-play').hidden=!h;$('hunt-stage').textContent=!h?'CHOOSE YOUR BUG':h.status==='won'?'POND CONQUERED':h.stage==='frog'?'BOSS FROG':'EAT → EVOLVE';if(!h)return;const p=h.player;
+ $('hunt-name').textContent=species(p.species).name.toUpperCase();$('hunt-hp').textContent=Math.ceil(p.hp)+' / '+p.maxHp;$('hunt-life').value=p.hp;$('hunt-pause').textContent=paused?'Resume':'Pause';$('hunt-pause-overlay').hidden=!paused||h.status!=='playing';$('hunt-result').hidden=h.status==='playing';$('hunt-result-title').textContent=h.status==='won'?'You beat the food chain.':'A tiny setback.';$('hunt-result-copy').textContent=h.status==='won'?'Boss Frog yields the pond. Your abilities and collected patterns are saved.':'Try again with every skill you learned. Time your bites, and move sideways when the frog warns.';$('hunt-retry').textContent=h.status==='won'?'Roam again · keep skills':'Try again · keep skills';$('meal-count').textContent=h.perfectMeals+' clean bite'+(h.perfectMeals===1?'':'s');
+ const ready=H.bossReady(h),bossActive=h.boss?.status==='active';$('hunt-objective').textContent=bossActive?'Dodge the tongue line. Attack during RESTING.':'Clean meals '+Math.min(3,h.perfectMeals)+'/3 · learned skills '+H.learnedCount(h)+'/4';$('frog-gate').textContent=h.status==='won'?'Pond conquered. Tiny bug, enormous appetite.':bossActive?'Tongue warning → attack → resting. Your opening is the resting phase.':ready?'The pond is open. Bring your new abilities.':'Need 3 clean bites and 3 different skills. Your starter skill counts.';$('hunt-boss').disabled=!ready||bossActive||h.status!=='playing'||paused;$('hunt-boss').textContent=bossActive?'Frog encounter active':'Enter the frog pond';$('frog-health').hidden=!h.boss;$('hunt-location').textContent=h.stage==='frog'?'THE FROG POND':'THE CRUMBLANDS / HUNTING GROUND';if(h.boss){$('frog-life').value=h.boss.hp;$('frog-life').max=h.boss.maxHp;$('frog-phase').textContent=h.boss.phase==='rest'?'RESTING · ATTACK NOW':h.boss.phase==='telegraph'?'TONGUE WARNING · MOVE':h.boss.phase==='tongue'?'TONGUE OUT': 'DEFEATED';}
+ const t=chosen(h),near=t&&Math.hypot(p.x-t.x,p.y-t.y)<(t===h.boss?100:H.BITE_RANGE);$('hunt-bite').disabled=paused||h.status!=='playing';$('hunt-bite').innerHTML=(h.bite?'Bite now':(near?'Catch & eat':'Eat'))+' <kbd>SPACE</kbd>';const bite=h.bite;$('bite-track').classList.toggle('idle',!bite);$('bite-track').classList.toggle('in-window',!!bite&&bite.progress>=bite.windowStart&&bite.progress<=bite.windowEnd);$('bite-window').style.left=(bite?bite.windowStart*100:35)+'%';$('bite-window').style.width=(bite?(bite.windowEnd-bite.windowStart)*100:30)+'%';$('bite-marker').style.left=(bite?Math.min(99.5,bite.progress*100):0)+'%';$('bite-track').setAttribute('aria-valuenow',Math.round((bite?.progress||0)*100));$('bite-track').setAttribute('aria-valuetext',bite?(bite.progress>=bite.windowStart&&bite.progress<=bite.windowEnd?'In the green window. Bite now.':'Wait for the green window.'):'Get close to a bug to begin.');$('bite-title').textContent=bite?(bite.progress>=bite.windowStart&&bite.progress<=bite.windowEnd?'BITE NOW — absorb the skill!':'Wait for the green window…'):near?'Close enough. Catch it!':'Catch something worth becoming.';$('bite-help').textContent=bite?'Press Eat / Space again. '+(3-bite.cycles)+' passes left.':t===h.boss?'Bite the frog while it rests.':t?species(t.species).name+' → '+species(t.species).skill.toUpperCase():'Tap the meadow to walk.';
+ H.SKILLS.forEach(s=>{const btn=$('power-'+s.id),rank=p.skills[s.id],cd=p.cooldowns[s.id];btn.disabled=!rank||paused||!!bite||h.status!=='playing'||cd>0;btn.querySelector('.rank').textContent=!rank?'LOCKED':cd>0?cd.toFixed(1)+'s':['','I','II','III'][rank];btn.querySelector('small').textContent=!rank?'Eat '+species(H.SPECIES.find(x=>x.skill===s.id).id).name+' cleanly.':s.description;});
+ const k=h.prey.map(x=>x.id).join(',')+'|'+(target?.id||'');if(k!==rosterKey){rosterKey=k;const focus=document.activeElement?.dataset.huntTarget;const representatives=H.SPECIES.map(s=>h.prey.filter(p=>p.species===s.id).sort((a,b)=>Math.hypot(a.x-h.player.x,a.y-h.player.y)-Math.hypot(b.x-h.player.x,b.y-h.player.y))[0]).filter(Boolean);$('hunt-prey-buttons').innerHTML=representatives.map(p=>'<button data-hunt-target="'+p.id+'" aria-pressed="'+(target?.id===p.id)+'">Hunt '+esc(species(p.species).name)+'</button>').join('');document.querySelectorAll('[data-hunt-target]').forEach(b=>b.onclick=()=>targetPrey(b.dataset.huntTarget));if(focus)document.querySelector('[data-hunt-target="'+focus+'"]')?.focus({preventScroll:true});}
+}
+function frog(c,b,t){c.save();c.translate(b.x,b.y);const open=b.phase==='rest',dead=b.status==='defeated';c.shadowColor='#bbec6d';c.shadowBlur=open?22:0;oval(c,-52,24,32,18,'#365d35','#769449');oval(c,52,24,32,18,'#365d35','#769449');oval(c,-43,-16,21,36,'#527844');oval(c,43,-16,21,36,'#527844');oval(c,0,8,59,49,dead?'#56714c':'#789c4f','#b4cb79');c.shadowBlur=0;for(let i=0;i<7;i++)oval(c,Math.sin(i*2.4)*35,Math.cos(i*2.4)*29,5,3,'#557c3a');oval(c,-31,-32,22,21,'#91b85c','#c5db86');oval(c,31,-32,22,21,'#91b85c','#c5db86');for(const side of [-1,1]){oval(c,side*31,-34,12,12,'#f1dc86');oval(c,side*31+(open?0:Math.sin(t)*2),-34,4,9,'#142419');oval(c,side*28,-38,2,2,'#fff8d3');}oval(c,0,22,open?32:34,open?20:4,'#1c3524','#abc76b');if(open)oval(c,0,31,17,6,'#d18b9f');c.fillStyle='#e9f5bd';c.font='bold 11px Consolas';c.textAlign='center';c.fillText(dead?'POND SURRENDERED':open?'OPEN!':'BOSS FROG',0,-66);c.restore();}
+function draw(dt){const h=hstate();if(!h)return;const d=fit(hc),p=h.player,zoom=d.w<620?d.w/480:Math.min(d.w/1000,d.h/600);cam.scale=zoom;const vw=d.w/zoom,vh=d.h/zoom;cam.x=Math.max(0,Math.min(1000-vw,p.x-vw/2));cam.y=Math.max(0,Math.min(600-vh,p.y-vh/2));if(vw>=1000)cam.x=-(vw-1000)/2;if(vh>=600)cam.y=-(vh-600)/2;
+ g.fillStyle=h.stage==='frog'?'#152d28':'#182c20';g.fillRect(0,0,d.w,d.h);g.save();g.scale(zoom,zoom);g.translate(-cam.x,-cam.y);g.lineWidth=1;for(let x=0;x<=1000;x+=40)line(g,x,0,x,600,'#25402e',.6);for(let y=0;y<=600;y+=40)line(g,0,y,1000,y,'#25402e',.6);g.strokeStyle='#577647';g.strokeRect(22,26,956,548);
+ if(h.stage==='frog'){for(let i=0;i<5;i++){oval(g,735,300,180+i*22,130+i*18,null,'#315e49');}for(let i=0;i<7;i++){const x=610+Math.sin(i*3.7)*260,y=300+Math.cos(i*2.7)*220;oval(g,x,y,22+i%3*6,13+i%4*3,'#355f38','#49784a');line(g,x,y,x+20,y-12,'#173e2c',2);}}else{for(let i=0;i<9;i++){const x=(i*179)%930+35,y=(i*117)%510+50;for(let j=0;j<3;j++)oval(g,x,y,25+j*11,45+j*11,null,'#2d4931');}}
+ for(let i=0;i<65;i++){g.fillStyle=i%5?'#4f693b':'#b3b871';g.globalAlpha=.45;g.fillRect((i*173.7)%950+25,(i*311.4)%540+30,i%4?2:4,i%4?2:4);}g.globalAlpha=1;
+ const b=h.boss;if(b?.status==='active'&&(b.phase==='telegraph'||b.phase==='tongue')){g.setLineDash(b.phase==='telegraph'?[12,8]:[]);line(g,b.x,b.y,b.aimX,b.aimY,b.phase==='tongue'?'#f397b2':'#ed99bd88',b.phase==='tongue'?16:4);g.setLineDash([]);oval(g,b.aimX,b.aimY,28,28,null,'#ee9aba');if(b.phase==='tongue')oval(g,b.aimX,b.aimY,13,13,'#ed99bd');}
+ if(target){const t=target.id==='frog'?b:target.id?h.prey.find(x=>x.id===target.id):target;if(t){g.setLineDash([3,7]);line(g,p.x,p.y,t.x,t.y,'#d2f66c44',1);g.setLineDash([]);oval(g,t.x,t.y,30,30,null,'#ed99bd');}}
+ for(const prey of h.prey){if(prey.species==='stripe'){g.save();g.globalAlpha=.25;for(let j=1;j<5;j++)line(g,prey.x-j*7-5,prey.y+10,prey.x-j*7+5,prey.y+10,'#ed9eff',2);g.restore();}if(prey.species==='ladybug'){g.save();g.globalAlpha=.25;for(let j=1;j<5;j++)oval(g,prey.x-j*10,prey.y+10,3,3,'#ff9aab');g.restore();}drawBug(g,prey,prey.x,prey.y,12,prey.phase,h.time);const rar=pat(prey.pattern).rarity;if(rar==='rare'||rar==='mythic'){g.fillStyle='#ed99bd';g.font='10px Consolas';g.textAlign='center';g.fillText(rar==='mythic'?'✦ MYTHIC':'✧ RARE',prey.x,prey.y+32);}}
+ h.effects.forEach(e=>{g.save();g.globalAlpha=Math.min(1,e.life/(e.maxLife||1));const progress=1-e.life/(e.maxLife||1);if(e.type==='trail'){for(let j=-2;j<=2;j++)line(g,e.x-15,e.y+j*7,e.x+15,e.y+j*7,'#ed9eff',3);}else if(e.type==='dots'){for(let j=0;j<12;j++){const a=j*Math.PI/6;oval(g,e.x+Math.cos(a)*e.radius*progress,e.y+Math.sin(a)*e.radius*progress,4,4,'#ff91ad');}}else if(e.type==='warp'){oval(g,e.x,e.y,20+progress*50,30+progress*65,null,'#c8f77a');if(e.toX)line(g,e.x,e.y,e.toX,e.toY,'#d2f66c66',3);}else if(['hit','boss-hit'].includes(e.type)){g.fillStyle='#ffb2c7';g.font='bold 20px Consolas';g.fillText('-'+(e.damage||''),e.x,e.y-25-progress*30);}else if(e.type==='learn'||e.type==='meal'){oval(g,e.x,e.y,20+progress*40,20+progress*40,null,e.color||'#d2f66c');}else if(e.type==='hop'){oval(g,e.x,e.y,20+progress*70,10+progress*40,null,'#a3cc91');}g.restore();});
+ if(b)frog(g,b,h.time);if(p.shellTime>0){g.globalAlpha=.3;oval(g,p.x,p.y,32,32,'#78e8da');g.globalAlpha=1;oval(g,p.x,p.y,32,32,null,'#b0fff0');}g.save();if(p.invulnerable>0)g.globalAlpha=.65+Math.sin(h.time*20)*.2;drawBug(g,{species:p.species,pattern:basePatterns[p.species]},p.x,p.y,19,Math.atan2(p.facingY,p.facingX)+Math.PI/2,h.time);g.restore();g.textAlign='center';g.font='bold 11px Consolas';g.fillStyle=stroke;g.fillText('YOU',p.x,p.y+42);if(h.bite){const prey=h.bite.preyId==='frog'?b:h.prey.find(x=>x.id===h.bite.preyId);if(prey){g.strokeStyle='#d2f66c';g.lineWidth=3;g.beginPath();g.arc(prey.x,prey.y,34,-Math.PI/2,-Math.PI/2+h.bite.progress*Math.PI*2);g.stroke();}}g.restore();
+ // Small overview keeps the pond and distant prey findable on a phone.
+ if(d.w<620){const ox=d.w-106,oy=d.h-69;g.fillStyle='#0c1814dd';g.fillRect(ox,oy,96,58);g.strokeStyle='#5a704d';g.strokeRect(ox,oy,96,58);h.prey.forEach(x=>oval(g,ox+x.x*.096,oy+x.y*.096,1.5,1.5,species(x.species).color));if(b)oval(g,ox+b.x*.096,oy+b.y*.096,4,4,'#bad57c');oval(g,ox+p.x*.096,oy+p.y*.096,3,3,'#fff5b9');}
+}
+function update(dt){const h=hstate();if(activeTab!=='hunt'){clearInput();return;}if(!h){$('starter-screen').hidden=false;$('hunt-play').hidden=true;return;}if(!allowed()){clearInput();dt=0;}if(dt&&h.status==='playing'){let x=(keys.has('d')||keys.has('arrowright')||held==='right'?1:0)-(keys.has('a')||keys.has('arrowleft')||held==='left'?1:0),y=(keys.has('s')||keys.has('arrowdown')||held==='down'?1:0)-(keys.has('w')||keys.has('arrowup')||held==='up'?1:0);if(x||y)target=null;let aim=null;if(target){const t=target.id==='frog'?h.boss:target.id?h.prey.find(p=>p.id===target.id):target;if(t){const stop=target.id==='frog'?88:target.id?56:5;if(Math.hypot(t.x-h.player.x,t.y-h.player.y)>stop)aim={x:t.x,y:t.y};}else target=null;}H.step(h,h.bite&&$('slow-bite').checked?dt*.4:dt,{x,y,target:aim});dirty=true;report();saveClock+=dt;if(saveClock>2){save();saveClock=0;}}draw(dt);lastHUD+=dt||.02;if(lastHUD>.08){hud();lastHUD=0;}}
+const starterCopy={roach:'Fold space. Warp through the frog’s tongue and close the distance.',stripe:'Sprint in a streak. Leave sharp stripes behind you.',ladybug:'Throw a circle of dots. Strike the frog from farther away.',pill:'Tuck into your shell. Heal and shrug off the hardest hits.'};
+$('starter-cards').innerHTML=H.SPECIES.map(s=>'<button data-starter="'+s.id+'"><canvas aria-hidden="true"></canvas><h3>'+s.name+'</h3><strong>Starts with '+s.skill+'</strong><p>'+starterCopy[s.id]+'</p><span class="choose-label">BE THIS BUG ↗</span></button>').join('');document.querySelectorAll('[data-starter]').forEach(btn=>{btn.onclick=()=>start(btn.dataset.starter);});
+$('hunt-skills').innerHTML=H.SKILLS.map(s=>'<button id="power-'+s.id+'" aria-label="Use '+s.name+'"><kbd>'+s.key+'</kbd><strong>'+s.name+'</strong><span class="rank">LOCKED</span><small></small></button>').join('');H.SKILLS.forEach(s=>$('power-'+s.id).onclick=()=>run(H.useSkill,s.id));
+$('hunt-bite').onclick=eat;$('hunt-boss').onclick=()=>{const r=run(H.startBoss);if(r?.ok)target={id:'frog'};};$('hunt-retry').onclick=()=>{claim();const h=hstate();H.retry(h);normalized=h;clearInput();setPaused(false);dirty=true;save();hud();};$('hunt-pause').onclick=toggleMotion;$('hunt-resume').onclick=toggleMotion;
+$('hunt-new-run').onclick=()=>{clearInput();$('confirm-hunt-reset').showModal();};$('cancel-hunt-reset').onclick=()=>$('confirm-hunt-reset').close();$('do-hunt-reset').onclick=()=>{claim();state.hunt=null;normalized=null;clearInput();save();$('confirm-hunt-reset').close();hud();drawStarters();};
+function drawStarters(){document.querySelectorAll('[data-starter]').forEach(btn=>{const c=btn.querySelector('canvas'),d=fit(c),cc=c.getContext('2d');cc.clearRect(0,0,d.w,d.h);drawBug(cc,{species:btn.dataset.starter,pattern:basePatterns[btn.dataset.starter]},d.w/2,d.h/2+6,24,.4,0);});}
+hc.onpointerdown=e=>{if(!allowed()||hstate()?.bite)return;const r=hc.getBoundingClientRect(),x=(e.clientX-r.left)/cam.scale+cam.x,y=(e.clientY-r.top)/cam.scale+cam.y,h=hstate();let p=h?.prey.find(p=>Math.hypot(x-p.x,y-p.y)<38);if(h?.boss&&Math.hypot(x-h.boss.x,y-h.boss.y)<85)target={id:'frog'};else target=p?{id:p.id}:{x:Math.max(26,Math.min(974,x)),y:Math.max(30,Math.min(570,y))};hc.focus({preventScroll:true});hud();};
+function formFocus(e){return e.target.closest('input,textarea,select,[contenteditable=true],dialog,nav');}
+addEventListener('keydown',e=>{if(activeTab!=='hunt'||formFocus(e))return;const k=e.key.toLowerCase();if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(k)){if(allowed()){e.preventDefault();keys.add(k);}return;}if(e.repeat)return;if(k===' '&&e.target.tagName!=='BUTTON'){e.preventDefault();eat();}if(['1','2','3','4'].includes(k)){e.preventDefault();run(H.useSkill,H.SKILLS[Number(k)-1].id);}if(k==='p'){e.preventDefault();toggleMotion();}});addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));addEventListener('blur',clearInput);document.addEventListener('visibilitychange',clearInput);document.querySelectorAll('[data-dir]').forEach(btn=>{btn.onpointerdown=e=>{e.preventDefault();if(allowed()){held=btn.dataset.dir;target=null;btn.setPointerCapture(e.pointerId);}};btn.onpointerup=btn.onpointercancel=btn.onlostpointercapture=()=>held=null;btn.onkeydown=e=>{if((e.key===' '||e.key==='Enter')&&allowed()){e.preventDefault();held=btn.dataset.dir;target=null;}};btn.onkeyup=e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault();held=null;}};btn.onblur=()=>held=null;});
+window.HuntView={update,refresh:()=>{hud();drawStarters();},clear:clearInput};showTab('hunt');hud();drawStarters();addEventListener('resize',drawStarters);
+})();
+
+</script>
+<script nonce="__MOZCORP_NONCE__" data-moz-source="adapter/bug-world.js">
+/* Private station adapter for the actual BugEngine legacy importer and playable world. */
+(function () {
+  'use strict';
+  const host=window.MozHost;
+  if(!host||typeof E==='undefined'||typeof E.importPackage!=='function'||typeof E.exportPackage!=='function')throw new Error('Bug World engine unavailable.');
+  let editVersion=0,restoring=false,lastState=JSON.stringify(state);
+  const fail=message=>{throw new Error(message);};
+  function data(value){
+    let count=0;
+    function visit(v,depth){
+      if(++count>100000||depth>20)fail('Bug World package is too complex.');
+      if(v===null||typeof v==='boolean')return;
+      if(typeof v==='string'){if(v.length>100000)fail('A Bug World field exceeds the engine’s 100,000-character limit.');return;}
+      if(typeof v==='number'){if(!Number.isFinite(v))fail('Bug World numbers must be finite.');return;}
+      if(Array.isArray(v)){if(v.length>5000)fail('Bug World array is too large.');v.forEach(x=>visit(x,depth+1));return;}
+      if(!v||typeof v!=='object'||Object.prototype.toString.call(v)!=='[object Object]')fail('Bug World packages contain JSON data only.');
+      if(Object.keys(v).length>3000)fail('Bug World object is too large.');
+      for(const [key,item]of Object.entries(v)){if(['__proto__','constructor','prototype'].includes(key))fail('Unsafe Bug World field.');visit(item,depth+1);}
+    }
+    visit(value,0);const raw=JSON.stringify(value);if(new TextEncoder().encode(raw).length>2000000)fail('Bug World packages must be smaller than 2 MB.');return JSON.parse(raw);
+  }
+  function packageFrom(value){
+    if(!value||typeof value!=='object'||Array.isArray(value))fail('Choose a Bug World project or legacy package.');
+    const selected=value.machine?.mozcorp?.world || value.machine?.legacy || value.world || value;
+    const p=data(selected);
+    if(![E.FORMAT,'mozcorp-bugworld-package-v1'].includes(p.format)||!p.state||typeof p.state!=='object'||Array.isArray(p.state))fail('This package belongs to another world engine.');
+    if(p.format==='mozcorp-bugworld-package-v1'&&(!p.state.bugWorld||typeof p.state.bugWorld!=='object'||Array.isArray(p.state.bugWorld)))fail('Legacy package has no Bug World state.');
+    return p;
+  }
+  function mark(){if(restoring)return;editVersion++;host.dirty?.({editVersion});}
+  function trackState(){const now=JSON.stringify(state);if(now!==lastState){lastState=now;mark();}}
+  function capture(){
+    trackState();
+    const world=data(E.exportPackage(state));
+    if(world.format!==E.FORMAT)fail('Bug World exported an unsupported format.');
+    const seed=state.legacy?.state?.fields?.seed;
+    return{engine:'mozcorp-bug-world-v2',station:'bug-world',version:1,editVersion,world,sourceMode:'fiction',sourceText:typeof seed==='string'?seed:''};
+  }
+  function restore(value){
+    const p=packageFrom(value);
+    // Run the real importer before replacing candidate state. Embedded legacy source remains inert JSON.
+    const next=E.importPackage(p);
+    if(!next||!Array.isArray(next.specimens)||!next.specimens.length)fail('Bug World has no playable specimens.');
+    restoring=true;
+    try{
+      state=next;paused=true;
+      if(typeof positions!=='undefined')positions.clear();if(typeof trails!=='undefined')trails.length=0;if(typeof portals!=='undefined')portals.length=0;
+      selected=state.specimens[0].id;
+      if(typeof setPaused==='function')setPaused(true);
+      window.HuntView?.clear?.();
+      if(typeof sync==='function')sync();
+      window.HuntView?.refresh?.();
+      lastState=JSON.stringify(state);
+      return{restored:true,engine:'mozcorp-bug-world-v2',paused:true,editVersion};
+    }finally{restoring=false;}
+  }
+  async function stop(){if(typeof setPaused==='function')setPaused(true);else paused=true;window.HuntView?.clear?.();await Promise.all([...(host.audioContexts||[])].map(c=>c.suspend?.().catch(()=>{})));return{stopped:true,paused:true,editVersion};}
+  host.register('capture',capture);host.register('restore',restore);host.register('stop',stop);host.register('checkpoint',()=>{trackState();return{editVersion};});
+  host.register('focus',value=>{const anchor=(typeof value==='string'?value:value?.anchor)||'',session=value&&typeof value==='object'?value.session:undefined;if(anchor||session!==undefined&&(!session||typeof session!=='object'||Array.isArray(session)||Object.keys(session).length))fail('Bug World does not receive source-review or EVERYWHEN handoffs.');return{focused:true,anchor:'',editVersion};});
+  for(const name of ['input','change','click','keydown'])document.addEventListener(name,event=>{if(event.isTrusted)mark();},true);
+  // The actual adventure advances on frames; capture its existing save signal as metadata only.
+  if(typeof MutationObserver==='function'){const marker=document.getElementById('save-status');if(marker)new MutationObserver(trackState).observe(marker,{childList:true,subtree:true,characterData:true});}
+  window.addEventListener('mozcorp:init',()=>{if(typeof setPaused==='function')setPaused(true);else paused=true;window.HuntView?.clear?.();});
+})();
+
+</script>
+</body></html>

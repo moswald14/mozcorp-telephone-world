@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en"><head>
+<meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; script-src &#x27;sha256-6VHm0n98i6k3U+BDB9Y8Gf9I2uAmihQxglywISjmDl8=&#x27; &#x27;sha256-DsRzTVYHkXInZtVoNnkJ7QRw/HEqkq6DzCC6tcbM3dU=&#x27; &#x27;sha256-eX1Rl10WD9LcSaSF93zsZYd5iaqNQyQExQC8g2N+bnI=&#x27; &#x27;sha256-onlzhkOEjVeTFoi08oQCzwPVn1zRP5gSp0J5UOZuzPM=&#x27; &#x27;sha256-zYpBg/KqBZWUxyX5024QT6LtKy5rFOdiqh39GtTWQsM=&#x27;; style-src &#x27;unsafe-inline&#x27;; img-src data: blob:; font-src data:; media-src data: blob:; frame-src &#x27;self&#x27; data: blob:; connect-src &#x27;none&#x27;; worker-src &#x27;none&#x27;; object-src &#x27;none&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;"><meta name="referrer" content="no-referrer">
+<script nonce="__MOZCORP_NONCE__" data-moz-source="prelude.js">
+// Private station boundary. This code never receives Keeper identity or vault keys.
+(function (root) {
+  'use strict';
+  const protocol = 'doodle-mozcorp/v1', stationId = 'everywhen';
+  const focusAnchors = [];
+  const preferenceKeys = new Set(['btw.mozmoji.fork.v1', 'btw.voodont.blind-backfeed.v1']);
+  const sessionLimits = {'btw.integrity.handoff.v1':700000,'btw-everywhen-fiction-cue-v1':4096};
+  const stations = new Set(['machine','recent','voodont','everywhen','mozville','friend-scrubber','integrity','swordfish','hope-lon','bug-world']);
+  const handlers = new Map(), pending = new Map(), outbound = [], dirtyPreferences = new Set();
+  const audioContexts = new Set(), wrappedAudio = new Map();
+  let token = null, sequence = 0, closed = false, lastDirty = null;
+  for(const name of ['AudioContext','webkitAudioContext']){
+    const native=root[name];if(typeof native!=='function')continue;
+    let wrapped=wrappedAudio.get(native);
+    if(!wrapped){wrapped=new Proxy(native,{construct(target,args,newTarget){const context=Reflect.construct(target,args,newTarget===wrapped?target:newTarget);audioContexts.add(context);return context;}});wrappedAudio.set(native,wrapped);}
+    try{root[name]=wrapped;}catch{}
+  }
+  function post(value) { root.parent.postMessage({protocol,stationId,...value}, '*'); }
+  function flush() { if (!token || closed) return; while(outbound.length) { const message=outbound.shift(); if(message.type!=='request'||pending.has(message.requestId))post({...message,token}); } }
+  function request(requestType, payload = {}) {
+    if (!['save','cloud','upgrades','open-original','open-link','news','hope','pref-set'].includes(requestType)) return Promise.reject(new Error('This station action is not supported.'));
+    if (closed) return Promise.reject(new Error('This station has closed.'));
+    const requestId = stationId+'-'+(++sequence);
+    return new Promise((resolve,reject)=>{
+      const timer=root.setTimeout(()=>{pending.delete(requestId);reject(new Error('The Keeper did not answer. Your work is still in this station.'));},20000);
+      pending.set(requestId,{resolve,reject,timer}); outbound.push({type:'request',requestId,requestType,payload}); flush();
+    });
+  }
+  function preferenceChanged(key,value) {
+    if (!preferenceKeys.has(key)) return;
+    dirtyPreferences.add(key);
+    if(token) request('pref-set',{key,value}).catch(()=>{});
+  }
+  function limitFor(kind,key){return kind==='local'&&preferenceKeys.has(key)?65536:Object.hasOwn(sessionLimits,key)?sessionLimits[key]:2000000;}
+  function store(kind) {
+    const map = new Map();
+    const api={
+      getItem(key){return map.get(String(key))??null;},
+      setItem(key,value){key=String(key);value=String(value);if(key.length>256||value.length>limitFor(kind,key))throw new Error('This station value is too large. Export a file to keep it.');if(!map.has(key)&&map.size>=128)throw new Error('This station memory is full.');let total=key.length+value.length;for(const [k,v]of map)if(k!==key)total+=k.length+v.length;if(total>8000000)throw new Error('This station memory is full. Export a file to keep it.');map.set(key,value);if(kind==='local')preferenceChanged(key,value);},
+      removeItem(key){key=String(key);map.delete(key);if(kind==='local')preferenceChanged(key,null);},
+      clear(){for(const key of map.keys())api.removeItem(key);},key(index){return [...map.keys()][index]??null;},
+      get length(){return map.size;}
+    };
+    return {api,map};
+  }
+  const local=store('local'),session=store('session');
+  const MozStore=Object.freeze({local:local.api,session:session.api,
+    snapshot(){return {local:Object.fromEntries(local.map),session:Object.fromEntries(session.map)};},
+    restore(value){
+      if(!value||typeof value!=='object')throw new Error('Invalid station memory.');
+      const changes=[];
+      for(const [which,target] of [['local',local],['session',session]]){
+        if(value[which]===undefined)continue;
+        if(!value[which]||typeof value[which]!=='object'||Array.isArray(value[which]))throw new Error('Invalid station memory.');
+        const entries=Object.entries(value[which]);if(entries.length>128)throw new Error('Too many station values.');
+        let total=0;for(const [key,text] of entries){if(key.length>256||typeof text!=='string'||text.length>limitFor(which,key))throw new Error('Invalid station value.');total+=key.length+text.length;}if(total>8000000)throw new Error('This station memory is full.');
+        changes.push({target,entries});
+      }
+      for(const {target,entries}of changes){target.map.clear();for(const [key,text]of entries)target.map.set(key,text);}
+    }
+  });
+  function navigate(next,options={}) {
+    if(!stations.has(next))throw new Error('Unknown MozCorp station.');
+    const transfer={};
+    const supplied=options.session||Object.fromEntries(session.map);
+    for(const [key,limit]of Object.entries(sessionLimits))if(Object.hasOwn(supplied,key)){if(typeof supplied[key]!=='string'||supplied[key].length>limit)throw new Error('Invalid station handoff.');transfer[key]=supplied[key];}
+    const anchor=typeof options.anchor==='string'&&/^[A-Za-z][\w-]{0,99}$/.test(options.anchor)?options.anchor:'';
+    outbound.push({type:'navigate',payload:{stationId:next,anchor,session:transfer}});flush();
+  }
+  function register(requestType,handler) {
+    if(!['capture','restore','cloud-restore','stop','checkpoint','focus'].includes(requestType)||typeof handler!=='function')throw new Error('Unknown station adapter.');
+    handlers.set(requestType,handler);return()=>handlers.delete(requestType);
+  }
+  // Station adapters override these narrow defaults after the original scripts.
+  register('capture',()=>{throw new Error('This private desk uses its own export controls and does not create Telephone project snapshots.');});
+  register('restore',()=>{throw new Error('This private desk does not accept generic Telephone project restoration.');});
+  register('checkpoint',()=>({editVersion:0}));
+  register('stop',async()=>{await Promise.all([...audioContexts].map(async context=>{if(context.state!=='closed')try{await context.suspend();}catch{}}));return{stopped:true,editVersion:0};});
+  register('focus',(value={})=>{
+    if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!['anchor','session'].includes(key)))throw new Error('Invalid station focus request.');
+    if(value.session!==undefined&&(!value.session||typeof value.session!=='object'||Array.isArray(value.session)||Object.keys(value.session).length))throw new Error('This private desk does not accept a transferred source or fiction cue.');
+    const anchor=value.anchor??'';if(typeof anchor!=='string'||(anchor&&!focusAnchors.includes(anchor)))throw new Error('Unknown station focus anchor.');
+    if(anchor){const target=root.document.getElementById(anchor);if(!target)throw new Error('This station focus target is unavailable.');target.scrollIntoView({block:'start',behavior:'auto'});}
+    return{focused:true,anchor,editVersion:0};
+  });
+  root.MozStore=MozStore;
+  function dirty(value){if(!value||!Number.isSafeInteger(value.editVersion)||value.editVersion<0)return;lastDirty=value.editVersion;if(token)post({type:'dirty',token,editVersion:lastDirty});}
+  root.MozHost=Object.freeze({navigate,request,register,dirty,audioContexts,get stationId(){return stationId;},get ready(){return token!==null;}});
+  root.addEventListener('message',event=>{
+    if(event.source!==root.parent)return;
+    const message=event.data;
+    if(!message||message.protocol!==protocol||message.stationId!==stationId)return;
+    if(message.type==='init'){
+      if(token!==null||typeof message.token!=='string'||!/^[a-fA-F0-9]{32}$/.test(message.token))return;
+      token=message.token;
+      for(const key of preferenceKeys){const text=message.preferences?.[key];if(typeof text==='string'&&text.length<=65536&&!dirtyPreferences.has(key))local.map.set(key,text);}
+      for(const [key,limit]of Object.entries(sessionLimits)){const text=message.session?.[key];if(typeof text==='string'&&text.length<=limit)session.map.set(key,text);}
+      root.dispatchEvent(new CustomEvent('mozcorp:init',{detail:{stationId}}));
+      for(const key of dirtyPreferences)request('pref-set',{key,value:local.api.getItem(key)}).catch(()=>{});
+      if(lastDirty!==null)post({type:'dirty',token,editVersion:lastDirty});
+      flush();return;
+    }
+    if(!token||message.token!==token)return;
+    if(message.type==='response'){
+      const job=pending.get(message.requestId);if(!job)return;pending.delete(message.requestId);root.clearTimeout(job.timer);
+      if(message.error){
+        const value=message.error,error=new Error(typeof value==='string'?value:typeof value.message==='string'?value.message:'The Keeper could not complete this action.');
+        if(value&&typeof value==='object'){
+          if(Number.isInteger(value.status)&&value.status>=400&&value.status<=599)error.status=value.status;
+          if(typeof value.code==='string'&&/^[A-Za-z0-9_.-]{1,80}$/.test(value.code))error.code=value.code;
+        }
+        job.reject(error);
+      }else job.resolve(message.result);return;
+    }
+    if(message.type==='request'&&typeof message.requestId==='string'&&message.requestId.length<=100){
+      const handler=handlers.get(message.requestType);
+      if(!handler){post({type:'response',token,requestId:message.requestId,error:'This station adapter is unavailable.'});return;}
+      Promise.resolve().then(()=>handler(message.payload)).then(result=>post({type:'response',token,requestId:message.requestId,result}),error=>post({type:'response',token,requestId:message.requestId,error:error?.message||'This station could not complete the action.'}));
+    }
+  });
+  root.document.addEventListener('click',event=>{
+    const link=event.target.closest?.('a');if(!link||link.hasAttribute('download'))return;
+    if(link.dataset.mozStation||link.dataset.mozOriginal||link.dataset.mozService){
+      event.preventDefault();
+      if(link.dataset.mozService==='upgrades')request('upgrades',{action:'open'}).catch(error=>root.alert(error.message));
+      else if(link.dataset.mozStation)navigate(link.dataset.mozStation,{anchor:link.dataset.mozAnchor||''});
+      else request('open-original',{path:link.dataset.mozOriginal,anchor:link.dataset.mozAnchor||''}).catch(error=>root.alert(error.message));
+      return;
+    }
+    // Opaque private frames cannot open popups. Only an actual click may ask the
+    // trusted parent to show an external URL for review; it never opens it here.
+    if(!event.isTrusted||event.defaultPrevented)return;
+    const raw=link.getAttribute('href');if(!raw||raw.startsWith('#'))return;
+    let url;try{url=new URL(raw,root.location.href);}catch{return;}
+    if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.href.length>4096)return;
+    if(link.target==='_blank'||url.origin!==root.location.origin){
+      event.preventDefault();request('open-link',{url:url.href}).catch(error=>root.alert(error.message));
+    }
+  });
+  function ready(){post({type:'ready'});const anchor='';if(anchor)root.document.getElementById(anchor)?.scrollIntoView({block:'start',behavior:'auto'});}
+  if(root.document.readyState==='loading')root.document.addEventListener('DOMContentLoaded',ready,{once:true});else root.setTimeout(ready,0);
+  root.addEventListener('pagehide',()=>{closed=true;outbound.length=0;for(const job of pending.values()){root.clearTimeout(job.timer);job.reject(new Error('This station has closed.'));}pending.clear();handlers.clear();for(const context of audioContexts)if(context.state!=='closed')context.suspend().catch(()=>{});audioContexts.clear();});
+})(window);
+
+</script><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0c151c"><title>EVERYWHEN · Empathy drive</title><link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4NCjxwYXRoIGQ9Ik0yMiAxOS4yNzI3QzIyIDIwLjc3OSAyMC43NzkgMjIgMTkuMjcyNyAyMkgxNC43MjczQzEzLjIyMSAyMiAxMiAyMC43NzkgMTIgMTkuMjcyN1YxMkgxOS4yNzI3QzIwLjc3OSAxMiAyMiAxMy4yMjEgMjIgMTQuNzI3M1YxOS4yNzI3WiIgZmlsbD0iIzY4QzRGRiIvPg0KPHBhdGggZD0iTTIwIDJDMjEuMTA0NiAyIDIyIDIuODk1NDMgMjIgNFY3QzIyIDguMTA0NTcgMjEuMTA0NiA5IDIwIDlIMTdDMTUuODk1NCA5IDE1IDguMTA0NTcgMTUgN1Y0QzE1IDIuODk1NDMgMTUuODk1NCAyIDE3IDJIMjBaIiBmaWxsPSIjMEM3OUQ4Ii8+DQo8cGF0aCBkPSJNNyAxNUM4LjEwNDU3IDE1IDkgMTUuODk1NCA5IDE3VjIwQzkgMjEuMTA0NiA4LjEwNDU3IDIyIDcgMjJINEMyLjg5NTQzIDIyIDIgMjEuMTA0NiAyIDIwVjE3QzIgMTUuODk1NCAyLjg5NTQzIDE1IDQgMTVIN1oiIGZpbGw9IiMwQzc5RDgiLz4NCjxwYXRoIGQ9Ik0xMiAxMkg0LjcyNzI3QzMuMjIxMDQgMTIgMiAxMC43NzkgMiA5LjI3MjczVjQuNzI3MjdDMiAzLjIyMTA0IDMuMjIxMDQgMiA0LjcyNzI3IDJIOS4yNzI3M0MxMC43NzkgMiAxMiAzLjIyMTA0IDEyIDQuNzI3MjdWMTJaIiBmaWxsPSIjMkU5RUZGIi8+DQo8L3N2Zz4NCg=="><style nonce="__MOZCORP_NONCE__">:root{color-scheme:dark;--bg:#0c151c;--panel:#14242c;--line:#3c5660;--ink:#eef5f2;--muted:#bdd0d2;--lime:#e5ff70;--cyan:#6ee6d4}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:1rem/1.6 system-ui,sans-serif}button,input,textarea,select{font:inherit}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}a{color:var(--lime);text-underline-offset:4px}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid var(--cyan);outline-offset:4px}h1,h2,h3,p{margin-top:0}h2{font-size:1.65rem;line-height:1.2;margin-bottom:18px}h3{font-size:1.05rem;margin-bottom:9px}.ew-shell{max-width:1430px;margin:auto;padding:25px}.ew-header{display:flex;justify-content:space-between;align-items:center;gap:24px;padding-bottom:23px;border-bottom:1px solid var(--line)}.ew-kicker{font:.8125rem/1.6 ui-monospace,monospace;letter-spacing:.07em;color:var(--muted);margin:0 0 9px}.ew-header h1{font:900 clamp(2.2rem,5vw,3.5rem)/1 system-ui,sans-serif;letter-spacing:-.045em;margin:0}.ew-header h1 span{font:600 .9375rem/1.5 ui-monospace,monospace;letter-spacing:.16em;color:var(--lime);display:block;margin-top:10px}.ew-home{font-size:.875rem;white-space:nowrap}.ew-boundary{display:grid;grid-template-columns:190px 1fr;column-gap:24px;row-gap:4px;padding:18px 0}.ew-boundary strong{font:.8125rem/1.7 ui-monospace,monospace;color:var(--cyan)}.ew-boundary p{font-size:.875rem;margin:0;color:var(--muted)}.ew-boundary span{grid-column:2;font-size:.875rem;color:var(--lime)}.ew-tabs{display:flex;flex-wrap:wrap;gap:6px;padding:9px;background:#0a1117;border:1px solid var(--line);border-radius:8px}.ew-tabs button{flex:1;padding:12px 11px;min-height:48px;border:1px solid transparent;background:transparent;color:var(--muted);font:700 .875rem/1.5 ui-monospace,monospace;white-space:nowrap;border-radius:5px}.ew-tabs button[aria-selected=true]{background:var(--lime);color:#102522;border-color:var(--lime)}.ew-status{font-size:.875rem;padding:12px 15px;background:#153332;border-left:3px solid var(--cyan);margin:17px 0 22px;color:#d1e9df;overflow-wrap:anywhere}.ew-status[data-error=true]{background:#3a252b;border-color:#ffaa9a;color:#ffdbd4}.ew-workspace{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(340px,1fr);gap:24px;align-items:start}.ew-panel{border:1px solid var(--line);border-radius:9px;background:var(--panel);padding:27px;min-width:0}.ew-sectionhead{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}.ew-tag{font:.8125rem/1.5 ui-monospace,monospace;border:1px solid #78917d;color:var(--lime);padding:5px 8px;border-radius:3px;white-space:nowrap}.ew-panel label,.ew-receipt label{display:block;font-size:.9375rem;font-weight:650;margin-bottom:17px}.ew-panel input,.ew-panel textarea,.ew-panel select,.ew-receipt textarea{display:block;width:100%;border:1px solid #69818a;border-radius:5px;background:#0b1b23;color:var(--ink);padding:10px 12px;margin-top:6px;min-height:46px}.ew-panel input[type=range]{padding:0;accent-color:var(--lime);background:transparent;border:0;height:32px}.ew-panel output{float:right;color:var(--lime);font:600 1rem ui-monospace,monospace}.ew-panel textarea{min-height:100px;resize:vertical}.ew-fields{display:grid;grid-template-columns:1fr 1fr;gap:17px}.ew-help{color:var(--muted);font-size:.875rem;line-height:1.6;margin:11px 0 16px;overflow-wrap:anywhere}.ew-panel>label+.ew-help{margin-top:-9px}.ew-panel fieldset{border:1px solid var(--line);border-radius:6px;padding:16px 16px 0;margin:0 0 20px}.ew-panel legend{padding:0 8px;font-size:.875rem;color:var(--cyan)}.ew-button,.ew-file{display:inline-flex!important;justify-content:center;align-items:center;border:1px solid #708c91;border-radius:5px;background:#24404c;color:var(--ink);font-size:.875rem!important;font-weight:700;min-height:46px;padding:10px 14px;line-height:1.45;gap:8px;text-align:center}.ew-button:hover{background:#325864}.ew-primary{background:var(--lime);border-color:var(--lime);color:#13251b}.ew-primary:hover{background:#f0ffa8}.ew-danger{background:#352931;color:#ffd7cd;border-color:#9b786e}.ew-actions{display:flex;gap:9px;flex-wrap:wrap;margin:15px 0}.ew-file{position:relative;overflow:hidden;cursor:pointer;margin:0!important}.ew-file input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}.ew-file:focus-within{outline:3px solid var(--cyan);outline-offset:3px}.ew-receipt{position:relative;padding:25px;background:#192a30;border:1px solid #65828a;border-top:7px solid var(--lime);border-radius:2px 2px 10px 10px;min-width:0;box-shadow:6px 6px 0 #060e1480}.ew-receipthead{border-bottom:1px dashed #71888e;padding-bottom:15px;margin-bottom:17px}.ew-receipthead h2{font:400 1.65rem/1.2 Georgia,serif;margin-bottom:20px}.ew-draw{display:flex;align-items:center;gap:13px;font:.8125rem/1.5 ui-monospace,monospace;color:var(--muted)}.ew-draw output{display:flex;align-items:center;justify-content:center;width:60px;height:60px;background:var(--lime);color:#123425;font:800 2rem system-ui,sans-serif;border-radius:50%;flex-shrink:0}.ew-receipt>p{font-size:.9375rem;overflow-wrap:anywhere}.ew-receipt dl{display:grid;grid-template-columns:110px minmax(0,1fr);gap:7px 12px;font-size:.875rem}.ew-receipt dt{color:var(--muted)}.ew-receipt dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}.ew-hash{font:.8125rem/1.7 ui-monospace,monospace;color:var(--cyan);background:#0b1b23;border:1px solid #42626d;padding:11px;border-radius:5px;overflow-wrap:anywhere}.ew-proof{padding:10px 0;border-bottom:1px dashed #6e888f;color:var(--lime)}.ew-receipt textarea{font:.8125rem/1.6 ui-monospace,monospace;min-height:155px;resize:vertical;font-weight:400}.ew-inspector{border-top:1px solid var(--line);padding:14px 0;font-size:.875rem}.ew-inspector summary{cursor:pointer;font-weight:650;color:#c7e5e0;min-height:32px}.ew-inspector[open] summary{margin-bottom:13px}.ew-inspector p{color:var(--muted)}.ew-meter{padding:18px 0}.ew-meter progress{display:block;width:100%;height:20px;accent-color:var(--lime)}.ew-meter>div{display:flex;justify-content:space-between;gap:15px;font:.875rem/1.6 ui-monospace,monospace;color:var(--muted);margin-top:12px}.ew-meter strong{color:var(--ink);font-weight:600}.ew-panel canvas{display:block;max-width:100%;height:auto;border:1px solid var(--line);border-radius:7px;background:#08151c}#ewScopeCanvas{width:100%;margin-bottom:22px;aspect-ratio:2}.ew-iconlayout{display:grid;grid-template-columns:minmax(180px,1fr) minmax(145px,.85fr);gap:20px;align-items:center}#ewIconCanvas{background:#0b1921;width:100%;aspect-ratio:1}.ew-iconcontrols label{margin-bottom:13px}.ew-cue{border-top:1px solid var(--line);margin-top:23px;padding-top:21px}.ew-cue>p:not(.ew-help){font:1.0625rem/1.7 Georgia,serif;color:#e6f0e4}.ew-return{padding:28px 24px;border:1px solid #7b9552;background:#223525;border-radius:7px;margin:20px 0}.ew-return>span{font:900 5rem/1 system-ui,sans-serif;letter-spacing:-.06em;color:var(--lime)}.ew-return h3{margin:16px 0 8px;font-size:1.5rem}.ew-return p{margin:0;color:#d1e5cf}.ew-thrumtoy{border-top:1px solid var(--line);padding-top:20px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}.ew-thrumtoy>div{flex:1;min-width:180px}.ew-thrumtoy p{font-size:.875rem;color:var(--muted);margin-bottom:0}.ew-thrumtoy output{float:none;display:block;font:800 2.2rem system-ui,sans-serif;min-width:40px;text-align:center}.ew-footer{border-top:1px solid var(--line);margin-top:30px;padding:20px 0;color:var(--cyan);font:.8125rem/1.7 ui-monospace,monospace}.ew-footer span{color:var(--muted);display:block;margin-top:6px}[hidden]{display:none!important}@media(max-width:1000px){.ew-workspace{grid-template-columns:minmax(0,1.1fr) minmax(310px,1fr);gap:16px}.ew-panel,.ew-receipt{padding:21px}.ew-iconlayout{grid-template-columns:1fr}.ew-iconcontrols{display:grid;grid-template-columns:1fr 1fr;gap:10px}#ewIconCanvas{max-width:280px;margin:auto}.ew-sectionhead{flex-wrap:wrap}.ew-tag{margin-bottom:15px}}@media(max-width:760px){.ew-shell{padding:17px}.ew-workspace{grid-template-columns:1fr}.ew-boundary{grid-template-columns:1fr}.ew-boundary span{grid-column:1}.ew-tabs button{flex:1 1 140px}.ew-receipt{margin-top:8px}.ew-iconlayout{grid-template-columns:1fr 1fr}.ew-iconcontrols{display:block}}@media(max-width:440px){.ew-shell{padding:12px}.ew-header{align-items:flex-start;flex-wrap:wrap}.ew-home{min-height:36px}.ew-panel,.ew-receipt{padding:18px}.ew-fields,.ew-iconlayout{grid-template-columns:1fr}.ew-actions .ew-button{flex:1 1 125px}.ew-meter>div{flex-direction:column;gap:2px}.ew-receipt dl{grid-template-columns:1fr;gap:3px}.ew-receipt dd{margin-bottom:9px}.ew-draw{flex-wrap:wrap}.ew-tabs button{white-space:normal}.ew-iconcontrols{display:grid;grid-template-columns:1fr 1fr;gap:12px}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}@media print{body{background:white;color:#111}.ew-header,.ew-boundary,.ew-tabs,.ew-status,.ew-tools,.ew-actions,.ew-inspector,.ew-button,.ew-file,.ew-footer{display:none!important}.ew-workspace{display:block}.ew-receipt{border:1px solid #333;background:white;color:#111;box-shadow:none}.ew-receipt textarea{color:#111;background:white;min-height:500px}.ew-hash,.ew-proof,.ew-receipt dt,.ew-kicker,.ew-draw{color:#111;background:white}}
+</style><style nonce="__MOZCORP_NONCE__">.ew-firstlight{display:grid;grid-template-columns:100px minmax(0,1fr);gap:18px;align-items:center;margin:0 0 20px;padding:12px 16px;border:1px solid #84959a;border-radius:7px;background:radial-gradient(circle at 14% 50%,#ffffff13,transparent 9rem),#0a141a}.ew-firstlight svg{display:block;width:92px;height:92px;filter:drop-shadow(0 0 9px #ffffff66)}.ew-firstlight-ring{fill:none;stroke:#fff;stroke-linejoin:bevel;stroke-linecap:round;stroke-width:2.6}.ew-firstlight-ring path:nth-child(2){stroke-width:1.35;opacity:.82}.ew-firstlight-void{fill:#0a141a;stroke:#eaffff;stroke-width:1.4}.ew-firstlight p:last-child{margin:0;color:#bfd0d1;font:.8125rem/1.55 ui-monospace,monospace}.ew-firstlight .ew-kicker{color:#f8ffff;margin-bottom:4px}@media(max-width:540px){.ew-firstlight{grid-template-columns:70px minmax(0,1fr);gap:12px;padding:11px}.ew-firstlight svg{width:66px;height:66px}}@media print{.ew-firstlight{display:none!important}}
+</style></head>
+<body><main class="ew-shell">
+  <header class="ew-header"><div><p class="ew-kicker">BULLSHIT TELEPHONE WORLD / STATION 10</p><h1>EVERYWHEN<span>EMPATHY DRIVE</span></h1></div><a class="ew-home" href="#" data-moz-station="machine">Back to the world</a></header>
+  <div class="ew-boundary"><strong>FICTIONAL / LOCAL ONLY</strong><p>Creative receipts, generated patterns, and an icon workshop. Sensations and weather are self-described. No network submission, sensing, diagnosis, currency, or soul capture.</p><span>RETURN ALL includes everyone. No receipt required.</span></div>
+  <aside class="ew-firstlight" aria-label="Decorative Firstlight empty-void motif">
+    <svg viewBox="0 0 240 240" aria-hidden="true" focusable="false"><g class="ew-firstlight-ring"><path d="M120 17L143 23 158 17 174 33 191 38 197 59 214 73 207 94 222 111 211 130 218 151 199 163 193 185 172 188 158 208 138 201 120 220 102 201 81 208 68 188 46 185 41 163 22 151 29 130 18 111 33 94 26 73 43 59 49 38 66 33 82 17 97 23Z"></path><path d="M43 59L23 49M33 94L10 87M29 130L7 139M41 163L21 179M68 188L57 214M102 201L98 227M138 201L145 224M172 188L188 211M199 163L221 177M211 130L232 139M207 94L229 85M197 59L217 47"></path></g><circle class="ew-firstlight-void" cx="120" cy="120" r="49"></circle></svg>
+    <div><p class="ew-kicker">FIRSTLIGHT / DECORATIVE LOCAL MARK</p><p>The ring stays outside the empty center. It reads no person, receipt, device, brain, or signal.</p></div>
+  </aside>
+  <nav class="ew-tabs" role="tablist" aria-label="EVERYWHEN tools">
+    <button id="ewTabGut" type="button" role="tab" aria-selected="true" aria-controls="ewPaneGut" data-pane="Gut">01 / GUTSTAMP</button>
+    <button id="ewTabRam" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="ewPaneRam" data-pane="Ram">02 / RAMcatcher</button>
+    <button id="ewTabScope" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="ewPaneScope" data-pane="Scope">03 / STATIC:SCOPE</button>
+    <button id="ewTabIcon" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="ewPaneIcon" data-pane="Icon">04 / Icon maker</button>
+    <button id="ewTabReturn" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="ewPaneReturn" data-pane="Return">05 / RETURN ALL</button>
+  </nav>
+  <div id="ewStatus" class="ew-status" role="status">Ready. Make a creative record of what you choose to enter.</div>
+  <div class="ew-workspace">
+    <div class="ew-tools">
+      <section id="ewPaneGut" class="ew-panel" role="tabpanel" aria-labelledby="ewTabGut">
+        <div class="ew-sectionhead"><div><p class="ew-kicker">A SELF-DESCRIBED MOMENT</p><h2>GUTSTAMP</h2></div><span class="ew-tag">SHA-256 receipt</span></div>
+        <label for="ewSensation">What sensation would you like to record?<input id="ewSensation" type="text" maxlength="160" placeholder="A warmth, a hum, a guttural wow…" autocomplete="off"></label>
+        <label for="ewIntensity">Your intensity <output id="ewIntensityValue" for="ewIntensity">5 / 10</output><input id="ewIntensity" type="range" min="0" max="10" step="1" value="5"></label><p class="ew-help">Your chosen description and number; the machine does not measure how you feel.</p>
+        <label for="ewNote">Optional note<textarea id="ewNote" maxlength="1000" placeholder="Only what you want in this local receipt."></textarea></label>
+        <fieldset><legend>Weather snapshot / entered by you</legend><div class="ew-fields"><label for="ewWeather">Condition<select id="ewWeather"><option>not recorded</option><option>clear</option><option>cloudy</option><option>rain</option><option>snow</option><option>fog</option><option>storm</option><option>imaginary weather</option></select></label><label for="ewTemperature">Temperature °C / optional<input id="ewTemperature" type="number" min="-150" max="150" step="1" placeholder="Not recorded"></label></div><p class="ew-help">No location or weather service is used. The snapshot freezes when you stamp.</p></fieldset>
+        <button id="ewStamp" class="ew-button ew-primary" type="button">Make GUTSTAMP receipt</button>
+        <p class="ew-help">Adds this device’s UTC time and a fresh nonce. THRUM draws 1–8 independently of the sensation, intensity, and receipt checksum.</p>
+      </section>
+      <section id="ewPaneRam" class="ew-panel" role="tabpanel" aria-labelledby="ewTabRam" hidden>
+        <div class="ew-sectionhead"><div><p class="ew-kicker">SYNTHETIC RANDOM RECORDS</p><h2>RAMcatcher</h2></div><span id="ewRamState" class="ew-tag">IDLE</span></div>
+        <p>This toy fills a browser-owned buffer with generated 32-byte records. It reads no physical RAM, files, people, or souls.</p>
+        <label for="ewRamSize">Synthetic buffer capacity<select id="ewRamSize"><option value="1">1 MiB</option><option value="4">4 MiB</option><option value="8">8 MiB</option></select></label>
+        <div class="ew-meter"><progress id="ewRamProgress" max="1048576" value="0">0</progress><div><strong id="ewRamBytes">0 bytes generated</strong><span id="ewRamRecords">0 records</span></div></div>
+        <div class="ew-actions"><button id="ewRamStart" class="ew-button ew-primary" type="button">Start</button><button id="ewRamPause" class="ew-button" type="button" disabled>Pause</button><button id="ewRamSeal" class="ew-button" type="button" disabled>Seal + receipt</button><button id="ewRamRelease" class="ew-button ew-danger" type="button" disabled>Release buffer</button></div>
+        <p id="ewRamStatus" class="ew-help" role="status">One buffer at a time. Pause keeps it; release discards it.</p><div id="ewRamHash" class="ew-hash">BUFFER SHA-256 / not sealed</div>
+        <div class="ew-actions"><button id="ewRamSave" class="ew-button" type="button" disabled>Save synthetic bytes .BIN</button><button id="ewRamViewReceipt" class="ew-button" type="button" disabled>View RAM receipt</button></div>
+        <p class="ew-help">The checksum covers the populated bytes only. Capacity is the record buffer size; browser and hashing overhead use additional memory. Releasing does not promise forensic erasure.</p>
+      </section>
+      <section id="ewPaneScope" class="ew-panel" role="tabpanel" aria-labelledby="ewTabScope" hidden>
+        <div class="ew-sectionhead"><div><p class="ew-kicker">GENERATED / NO RECEIVER</p><h2>STATIC:SCOPE</h2></div><span id="ewScopeState" class="ew-tag">STILL FRAME</span></div>
+        <canvas id="ewScopeCanvas" width="576" height="288" aria-label="Generated static pattern; no radio or device input"></canvas>
+        <div class="ew-fields"><label for="ewScopeMode">Pattern<select id="ewScopeMode"><option value="snow">Synthetic snow</option><option value="tide">Tide trace</option><option value="grid">Signal grid / invented</option></select></label><label for="ewScopeColor">Color<select id="ewScopeColor"><option value="citron">Citron</option><option value="tide">Tide</option><option value="violet">Violet</option><option value="ember">Ember</option><option value="mono">Mono</option></select></label></div>
+        <div class="ew-actions"><button id="ewScopePlay" class="ew-button ew-primary" type="button">Play pattern</button><button id="ewScopeFrame" class="ew-button" type="button">New still frame</button></div><p class="ew-help">Procedural light only. No radio, microphone, camera, device scan, hidden signal, or interpretation of the outside world. Animation pauses when this tool is hidden.</p>
+      </section>
+      <section id="ewPaneIcon" class="ew-panel" role="tabpanel" aria-labelledby="ewTabIcon" hidden>
+        <div class="ew-sectionhead"><div><p class="ew-kicker">NATIVE LOCAL WORKSHOP</p><h2>Icon maker</h2></div><span class="ew-tag">Creative / fictional</span></div>
+        <div class="ew-iconlayout"><canvas id="ewIconCanvas" width="512" height="512" aria-label="Your locally rendered EVERYWHEN creative badge"></canvas><div class="ew-iconcontrols">
+          <label for="ewIconPalette">Palette<select id="ewIconPalette"><option value="citron">Citron + tide</option><option value="tide">Electric tide</option><option value="violet">Violet signal</option><option value="ember">Ember glow</option><option value="mono">Paper signal</option></select></label>
+          <label for="ewIconShape">Shape<select id="ewIconShape"><option value="circle">Circle</option><option value="tile">Rounded tile</option><option value="hexagon">Hexagon</option></select></label>
+          <label for="ewIconSymbol">Symbol<select id="ewIconSymbol"><option value="ring">Ring</option><option value="spark">Spark</option><option value="wave">Wave</option><option value="gate">Open gate</option><option value="orbit">Orbit</option></select></label>
+          <button id="ewIconPattern" class="ew-button" type="button">Change pattern</button>
+        </div></div>
+        <div class="ew-actions"><button id="ewIconReceipt" class="ew-button" type="button" disabled>Derive from current receipt</button><button id="ewIconSave" class="ew-button ew-primary" type="button">Export PNG / 512 px</button></div><p id="ewIconSource" class="ew-help">Custom creative badge. No entered text appears in the PNG.</p>
+        <div class="ew-cue"><h3>A small fiction cue for the world</h3><label for="ewScene">Scene color / independent of anyone’s worth<select id="ewScene"><option value="1">1 / A seat for everyone</option><option value="2">2 / The harbor gate</option><option value="3">3 / The unfinished map</option><option value="4">4 / A flag from static</option><option value="5">5 / The paper bookmark</option><option value="6">6 / Set the counter aside</option><option value="7">7 / The story door</option><option value="8">8 / RETURN ALL</option></select></label><p id="ewCuePreview"></p><button id="ewToWorld" class="ew-button" type="button">Send fiction cue to world</button><p class="ew-help">Transfers only the selected scene and creative icon settings in this tab. Sensation, intensity, note, weather, time, nonce, checksums, and buffer bytes are excluded. The world shows a preview before you use it in the fiction hopper.</p></div>
+      </section>
+      <section id="ewPaneReturn" class="ew-panel" role="tabpanel" aria-labelledby="ewTabReturn" hidden>
+        <p class="ew-kicker">THE FICTIONAL RULE IS UNCONDITIONAL</p><h2>AFTERCALC / RETURN ALL</h2><div class="ew-return"><span>ALL</span><h3>Everyone is included.</h3><p>With a receipt. Without a receipt. With an empty buffer. With any intensity. With any THRUM.</p></div>
+        <button id="ewReturnAll" class="ew-button ew-primary" type="button">Run fictional AFTERCALC</button><p id="ewReturnText" role="status">No receipt is an entrance requirement.</p><p class="ew-help">This is a story rule about inclusion. It does not calculate an afterlife, verify a soul, predict an outcome, or make a real-world promise.</p>
+        <div class="ew-thrumtoy"><div><h3>Independent THRUM</h3><p>A fresh uniform draw from 1–8. It changes no eligibility.</p></div><output id="ewFreeThrum">—</output><button id="ewDrawThrum" class="ew-button" type="button">Draw 1–8</button></div>
+      </section>
+    </div>
+    <aside class="ew-receipt" aria-labelledby="ewReceiptTitle"><div class="ew-receipthead"><p class="ew-kicker">CURRENT LOCAL RECEIPT</p><h2 id="ewReceiptTitle">A moment, on paper.</h2><div class="ew-draw"><span>THRUM</span><output id="ewThrum">—</output><span>independent 1–8 draw</span></div></div>
+      <p id="ewReceiptSummary">Stamp a self-described moment, seal generated bytes, or paste a saved receipt.</p><dl id="ewReceiptFacts"></dl><div id="ewReceiptDigest" class="ew-hash">SHA-256 / waiting</div><p id="ewReceiptProof" class="ew-proof" role="status">No receipt has been verified.</p>
+      <div class="ew-actions"><button id="ewReceiptSave" class="ew-button" type="button" disabled>Save receipt .JSON</button><button id="ewReceiptVerify" class="ew-button" type="button" disabled>Verify current</button><button id="ewReceiptBadge" class="ew-button" type="button" disabled>Make its badge</button></div>
+      <label for="ewReceiptText">Receipt JSON / copy or inspect<textarea id="ewReceiptText" readonly spellcheck="false" placeholder="The complete receipt appears here."></textarea></label>
+      <details class="ew-inspector"><summary>Paste, reload, and verify</summary><label for="ewImportText">Paste an EVERYWHEN receipt<textarea id="ewImportText" maxlength="32768" spellcheck="false" placeholder="Paste the entire JSON envelope, including the THRUM record."></textarea></label><div class="ew-actions"><button id="ewImportVerify" class="ew-button" type="button">Verify + load paste</button><label class="ew-file">Open receipt .JSON<input id="ewImportFile" type="file" accept=".json,application/json"></label></div><label class="ew-file">Check a saved RAM buffer .BIN<input id="ewBufferFile" type="file" accept=".bin,application/octet-stream"></label><p id="ewBufferProof" class="ew-help" role="status">A RAM receipt checks metadata. To check released bytes again, supply the saved .BIN file.</p></details>
+      <details class="ew-inspector"><summary>What a matching checksum means</summary><p>SHA-256 matches the saved fields. It does not authenticate an author, prove a sensation or weather report, certify the device clock, or prove a draw was fair.</p><p><strong>EW-C14N-1:</strong> fixed versioned schemas, JSON keys sorted recursively in UTF-16 order, no whitespace, UTF-8 bytes. Strings are preserved during verification. New text is normalized to NFC before stamping. Each receipt payload and its separate linked THRUM payload have their own checksum.</p></details>
+      <button id="ewClearDesk" class="ew-button ew-danger" type="button">Clear this local desk</button><p class="ew-help">Receipts are not automatically saved. Download what you want to keep before closing this page.</p>
+    </aside>
+  </div>
+  <footer class="ew-footer">EVERYWHEN / FICTIONAL LOCAL CONTENT <span>Evidence, real-question notebooks, friend reviews, and HOPE’s saved feed are outside this station.</span></footer>
+</main><script nonce="__MOZCORP_NONCE__" data-moz-source="everywhen-core.js">
+(function (root) {
+  'use strict';
+  const MIB = 1048576, RECORD_BYTES = 32, MAX_RECEIPT_BYTES = 32768;
+  const WEATHER = Object.freeze(['not recorded','clear','cloudy','rain','snow','fog','storm','imaginary weather']);
+  const PALETTES = Object.freeze(['citron','tide','violet','ember','mono']);
+  const SHAPES = Object.freeze(['circle','tile','hexagon']);
+  const SYMBOLS = Object.freeze(['ring','spark','wave','gate','orbit']);
+  const SCENES = Object.freeze([
+    'Unifin leaves a seat at the table for every character. Nobody needs a receipt to sit down.',
+    'Priz hangs a new badge over the harbor gate. It opens for everyone, with or without a stamped card.',
+    'Aurel lights the unfilled places on the map. Every character gets room to write a next line.',
+    'The crew turns a little patch of generated static into a festival flag. All are invited.',
+    'A paper receipt becomes a bookmark in an invented adventure. It grants no rank or special worth.',
+    'The machine counts its pretend records, then sets the counter aside. Everyone belongs in the next scene.',
+    'A new symbol appears on the story door. The door has no receipt scanner and no entrance test.',
+    'The crew calls RETURN ALL. In this fictional scene, every character is included and every future stays open.'
+  ]);
+  const fail = message => { throw new Error(message); };
+  const obj = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+  function keys(value, expected, label) {
+    if (!obj(value) || Object.keys(value).length !== expected.length || expected.some(k => !Object.hasOwn(value,k))) fail(label + ' has missing or unexpected fields.');
+  }
+  function integer(value, min, max, label) { if (!Number.isSafeInteger(value) || value < min || value > max) fail(label + ' must be a whole number from ' + min + ' to ' + max + '.'); return value; }
+  function unicode(value) {
+    for (let i=0;i<value.length;i++) { const c=value.charCodeAt(i); if(c>=0xd800&&c<=0xdbff){const d=value.charCodeAt(++i);if(!(d>=0xdc00&&d<=0xdfff))fail('Text contains an incomplete Unicode character.');}else if(c>=0xdc00&&c<=0xdfff)fail('Text contains an incomplete Unicode character.'); }
+  }
+  function text(value, max, label, required=false) {
+    if (typeof value !== 'string') fail(label + ' must be text.'); unicode(value);
+    if (new TextEncoder().encode(value).byteLength > max) fail(label + ' is too long; shorten it before stamping.');
+    if (required && !value.trim()) fail('Describe a sensation in your own words.'); return value;
+  }
+  function utc(value) { if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)||!Number.isFinite(Date.parse(value))||new Date(value).toISOString()!==value)fail('Timestamp must be an exact UTC ISO timestamp with milliseconds.'); }
+  function hex(value, length, label) { if(typeof value!=='string'||value.length!==length||!/^[0-9a-f]+$/.test(value))fail(label+' must contain '+length+' lowercase hexadecimal characters.'); }
+  function canonical(value) {
+    if(value===null||typeof value==='boolean')return JSON.stringify(value);
+    if(typeof value==='string'){unicode(value);return JSON.stringify(value);}
+    if(typeof value==='number'){if(!Number.isFinite(value))fail('Canonical numbers must be finite.');return JSON.stringify(value);}
+    if(Array.isArray(value))return '['+value.map(canonical).join(',')+']';
+    if(obj(value))return '{'+Object.keys(value).sort().map(k=>canonical(k)+':'+canonical(value[k])).join(',')+'}';
+    fail('Unsupported canonical value.');
+  }
+  // EW-C14N-1: fixed schemas, recursive UTF-16 key order, JSON strings/numbers,
+  // no whitespace, UTF-8 bytes. Imported strings are preserved, never normalized.
+  function parseStrict(raw) {
+    if(typeof raw!=='string'||new TextEncoder().encode(raw).byteLength>MAX_RECEIPT_BYTES)fail('Paste a receipt no larger than 32 KiB.');
+    let i=0;
+    const space=()=>{while(/[\t\n\r ]/.test(raw[i]||'~'))i++;};
+    function string(){const start=i++;while(i<raw.length){if(raw[i]==='\\'){i+=2;continue;}if(raw[i++]==='"'){let s;try{s=JSON.parse(raw.slice(start,i));}catch{fail('Invalid JSON string.');}unicode(s);return s;}}fail('Unfinished JSON string.');}
+    function value(depth=0){
+      if(depth>20)fail('Receipt nesting is too deep.');space();const c=raw[i];
+      if(c==='"')return string();
+      if(c==='{'){i++;space();const out=Object.create(null),seen=new Set();if(raw[i]==='}'){i++;return out;}while(i<raw.length){space();if(raw[i]!=='"')fail('Expected a JSON field name.');const k=string();if(seen.has(k))fail('Duplicate JSON field: '+k);seen.add(k);space();if(raw[i++]!==':')fail('Expected a colon.');out[k]=value(depth+1);space();const end=raw[i++];if(end==='}')return out;if(end!==',')fail('Expected a comma or closing brace.');}fail('Unfinished JSON object.');}
+      if(c==='['){i++;space();const out=[];if(raw[i]===']'){i++;return out;}while(i<raw.length){out.push(value(depth+1));if(out.length>100)fail('Unexpected receipt array.');space();const end=raw[i++];if(end===']')return out;if(end!==',')fail('Expected a comma or closing bracket.');}fail('Unfinished JSON array.');}
+      const match=raw.slice(i).match(/^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/);if(!match)fail('Invalid JSON value.');i+=match[0].length;const out=JSON.parse(match[0]);if(typeof out==='number'&&!Number.isFinite(out))fail('Receipt numbers must be finite.');return out;
+    }
+    const result=value();space();if(i!==raw.length)fail('Unexpected content after the receipt.');return result;
+  }
+  function cryptoReady() { return !!root.crypto?.getRandomValues && !!root.crypto?.subtle?.digest; }
+  function randomBytes(length) { if(!root.crypto?.getRandomValues)fail('Secure browser randomness is unavailable here. No receipt or random draw was made.');const bytes=new Uint8Array(length);root.crypto.getRandomValues(bytes);return bytes; }
+  const toHex = bytes => Array.from(bytes,x=>x.toString(16).padStart(2,'0')).join('');
+  const nonce = () => toHex(randomBytes(16));
+  function drawThrum() { return (randomBytes(1)[0] % 8) + 1; }
+  async function sha256(value) { if(!root.crypto?.subtle?.digest)fail('SHA-256 is unavailable in this browser. No checksum was invented.');const bytes=typeof value==='string'?new TextEncoder().encode(value):value;return toHex(new Uint8Array(await root.crypto.subtle.digest('SHA-256',bytes))); }
+  function validatePayload(p) {
+    const base=['type','fictional','utc','nonce'];
+    if(p?.type==='everywhen.gutstamp.v1'){
+      keys(p,[...base,'sensation','intensity','note','weather'],'GUTSTAMP');
+      text(p.sensation,1024,'Sensation',true);integer(p.intensity,0,10,'Intensity');text(p.note,4096,'Note');
+      keys(p.weather,['source','condition','temperatureC'],'Weather snapshot');
+      if(p.weather.source!=='manual'||!WEATHER.includes(p.weather.condition))fail('Weather must be a manually described snapshot.');
+      if(p.weather.temperatureC!==null)integer(p.weather.temperatureC,-150,150,'Temperature in °C');
+    }else if(p?.type==='everywhen.ram-seal.v1'){
+      keys(p,[...base,'source','capacityMiB','usedBytes','recordBytes','records','bufferSha256'],'RAM seal');
+      if(p.source!=='synthetic-random-bytes'||![1,4,8].includes(p.capacityMiB)||p.recordBytes!==RECORD_BYTES)fail('Unsupported synthetic buffer format.');
+      integer(p.usedBytes,RECORD_BYTES,p.capacityMiB*MIB,'Populated bytes');
+      if(p.usedBytes%RECORD_BYTES||p.records!==p.usedBytes/RECORD_BYTES)fail('The synthetic record count does not match its bytes.');hex(p.bufferSha256,64,'Buffer checksum');
+    }else fail('This is not a supported EVERYWHEN receipt.');
+    if(p.fictional!==true)fail('EVERYWHEN receipts must retain their fictional scope.');utc(p.utc);hex(p.nonce,32,'Nonce');return p;
+  }
+  function validateEnvelope(e) {
+    keys(e,['format','canonical','receipt','thrum'],'Receipt envelope');
+    if(e.format!=='everywhen.receipt.v1'||e.canonical!=='EW-C14N-1')fail('Unsupported receipt version or canonical format.');
+    for(const label of ['receipt','thrum']){keys(e[label],['payload','sha256'],label);hex(e[label].sha256,64,label+' checksum');}
+    validatePayload(e.receipt.payload);
+    const d=e.thrum.payload;keys(d,['type','utc','nonce','receiptSha256','value'],'THRUM draw');
+    if(d.type!=='everywhen.thrum.v1')fail('Unsupported THRUM record.');utc(d.utc);hex(d.nonce,32,'THRUM nonce');hex(d.receiptSha256,64,'THRUM receipt reference');integer(d.value,1,8,'THRUM');return e;
+  }
+  async function sealPayload(payload) {
+    validatePayload(payload);const digest=await sha256(canonical(payload));
+    const draw={type:'everywhen.thrum.v1',utc:new Date().toISOString(),nonce:nonce(),receiptSha256:digest,value:drawThrum()};
+    return {format:'everywhen.receipt.v1',canonical:'EW-C14N-1',receipt:{payload,sha256:digest},thrum:{payload:draw,sha256:await sha256(canonical(draw))}};
+  }
+  async function createGutstamp(input) {
+    const payload={type:'everywhen.gutstamp.v1',fictional:true,utc:new Date().toISOString(),nonce:nonce(),sensation:typeof input.sensation==='string'?input.sensation.normalize('NFC'):input.sensation,intensity:input.intensity,note:typeof input.note==='string'?input.note.normalize('NFC'):input.note,weather:{source:'manual',condition:input.weather?.condition,temperatureC:input.weather?.temperatureC}};
+    return sealPayload(payload);
+  }
+  async function verifyReceipt(raw) {
+    const e=validateEnvelope(typeof raw==='string'?parseStrict(raw):raw);
+    const [a,b]=await Promise.all([sha256(canonical(e.receipt.payload)),sha256(canonical(e.thrum.payload))]);
+    const receiptMatches=a===e.receipt.sha256,drawMatches=b===e.thrum.sha256&&e.thrum.payload.receiptSha256===e.receipt.sha256;
+    return {ok:receiptMatches&&drawMatches,receiptMatches,drawMatches,envelope:e};
+  }
+  async function verifyBuffer(envelope, bytes) {
+    const checked=await verifyReceipt(envelope);if(!checked.ok)fail('Verify the receipt before checking a buffer.');const p=envelope.receipt.payload;
+    if(p.type!=='everywhen.ram-seal.v1')fail('Choose a RAMcatcher receipt first.');
+    if(bytes.byteLength!==p.usedBytes)return false;return await sha256(bytes)===p.bufferSha256;
+  }
+  class SyntheticPool {
+    constructor(){this.bytes=null;this.usedBytes=0;this.capacityMiB=1;this.state='idle';this.epoch=0;this.receipt=null;}
+    start(capacityMiB=1){
+      if(![1,4,8].includes(capacityMiB))fail('Choose a 1, 4, or 8 MiB synthetic buffer.');
+      if(['sealing','sealed','full'].includes(this.state))fail('Release this buffer before starting another.');
+      if(this.bytes&&capacityMiB!==this.capacityMiB)fail('Release the existing buffer before changing capacity.');
+      if(!this.bytes){this.bytes=new Uint8Array(capacityMiB*MIB);this.capacityMiB=capacityMiB;this.usedBytes=0;this.epoch++;}
+      this.state='running';return this.state;
+    }
+    tick(){if(this.state!=='running')return;const end=Math.min(this.bytes.length,this.usedBytes+65536);root.crypto.getRandomValues(this.bytes.subarray(this.usedBytes,end));this.usedBytes=end;if(end===this.bytes.length)this.state='full';}
+    pause(){if(this.state==='running')this.state='paused';}
+    release(){this.epoch++;this.state='idle';this.bytes=null;this.usedBytes=0;this.receipt=null;}
+    async seal(){
+      if(!this.bytes||!this.usedBytes)fail('Generate some synthetic records before sealing.');
+      if(this.state==='sealing')fail('This buffer is already being sealed.');if(this.state==='sealed')return this.receipt;
+      this.state='sealing';const epoch=this.epoch,bytes=this.bytes.slice(0,this.usedBytes),usedBytes=this.usedBytes,capacityMiB=this.capacityMiB;
+      try{const bufferSha256=await sha256(bytes);if(epoch!==this.epoch)return null;
+        const receipt=await sealPayload({type:'everywhen.ram-seal.v1',fictional:true,utc:new Date().toISOString(),nonce:nonce(),source:'synthetic-random-bytes',capacityMiB,usedBytes,recordBytes:RECORD_BYTES,records:usedBytes/RECORD_BYTES,bufferSha256});
+        if(epoch!==this.epoch)return null;this.receipt=receipt;this.state='sealed';return receipt;
+      }catch(error){if(epoch===this.epoch)this.state='paused';throw error;}
+    }
+    exportBytes(){if(this.state!=='sealed'||!this.bytes)fail('Seal the synthetic buffer before saving its populated bytes.');return this.bytes.subarray(0,this.usedBytes);}
+  }
+  function validateIcon(value) {
+    keys(value,['palette','shape','symbol','pattern','source'],'Icon settings');
+    if(!PALETTES.includes(value.palette)||!SHAPES.includes(value.shape)||!SYMBOLS.includes(value.symbol)||!['custom','receipt-derived'].includes(value.source))fail('Choose the listed creative icon settings.');hex(value.pattern,8,'Icon pattern');
+    return {palette:value.palette,shape:value.shape,symbol:value.symbol,pattern:value.pattern,source:value.source};
+  }
+  function derivedIcon(digest){hex(digest,64,'Receipt checksum');return {palette:PALETTES[parseInt(digest.slice(0,2),16)%PALETTES.length],shape:SHAPES[parseInt(digest.slice(2,4),16)%SHAPES.length],symbol:SYMBOLS[parseInt(digest.slice(4,6),16)%SYMBOLS.length],pattern:digest.slice(6,14),source:'receipt-derived'};}
+  function validateCue(packet){keys(packet,['format','fictional','scene','icon'],'Fiction cue');if(packet.format!=='everywhen.fiction-cue.v1'||packet.fictional!==true)fail('Only fictional EVERYWHEN cues can enter this station.');integer(packet.scene,1,8,'Scene');return {format:packet.format,fictional:true,scene:packet.scene,icon:validateIcon(packet.icon)};}
+  function makeCue(icon,scene=1){return validateCue({format:'everywhen.fiction-cue.v1',fictional:true,scene,icon});}
+  function cueText(value){const p=validateCue(value);return ['EVERYWHEN // FICTIONAL LOCAL STORY CUE',SCENES[p.scene-1],'Creative badge: '+p.icon.palette+' palette · '+p.icon.shape+' · '+p.icon.symbol+'.','RETURN ALL: everyone is included, regardless of receipts.','Fiction only. No sensation, intensity, note, weather, nonce, timestamp, receipt checksum, or synthetic bytes are included.','FINAL STORY // EXIT stays outside the feedback loop.'].join('\n');}
+  function returnAll(){return {fictional:true,included:'everyone',receiptRequired:false,text:'RETURN ALL // In this fictional story, everyone is included. No receipt, intensity, THRUM result, or buffer is an entrance requirement.'};}
+  root.EverywhenCore=Object.freeze({MIB,RECORD_BYTES,MAX_RECEIPT_BYTES,WEATHER,PALETTES,SHAPES,SYMBOLS,SCENES,canonical,parseStrict,cryptoReady,drawThrum,sha256,validatePayload,validateEnvelope,createGutstamp,verifyReceipt,verifyBuffer,SyntheticPool,validateIcon,derivedIcon,validateCue,makeCue,cueText,returnAll});
+})(globalThis);
+
+</script><script nonce="__MOZCORP_NONCE__" data-moz-source="everywhen-icons.js">
+(function(root){
+  'use strict';
+  const colors=Object.freeze({
+    citron:{bg:'#102522',ink:'#e5ff70',accent:'#6ee6d4',name:'Citron + tide'},
+    tide:{bg:'#10263c',ink:'#83ebf2',accent:'#b7caff',name:'Electric tide'},
+    violet:{bg:'#261d42',ink:'#d2b3ff',accent:'#ffb9d6',name:'Violet signal'},
+    ember:{bg:'#351f28',ink:'#ffc176',accent:'#ff8eac',name:'Ember glow'},
+    mono:{bg:'#162129',ink:'#f0f6f5',accent:'#9db4be',name:'Paper signal'}
+  });
+  function draw(canvas,settings){
+    const p=root.EverywhenCore.validateIcon(settings),c=colors[p.palette],ctx=canvas.getContext('2d');if(!ctx)throw new Error('Canvas drawing is unavailable in this browser.');
+    ctx.save();ctx.clearRect(0,0,canvas.width,canvas.height);ctx.scale(canvas.width/512,canvas.height/512);
+    ctx.fillStyle=c.bg;ctx.strokeStyle=c.ink;ctx.lineWidth=8;ctx.lineJoin='round';ctx.lineCap='round';ctx.beginPath();
+    if(p.shape==='circle')ctx.arc(256,232,192,0,Math.PI*2);
+    else if(p.shape==='tile'){ctx.moveTo(104,40);ctx.lineTo(408,40);ctx.quadraticCurveTo(448,40,448,80);ctx.lineTo(448,384);ctx.quadraticCurveTo(448,424,408,424);ctx.lineTo(104,424);ctx.quadraticCurveTo(64,424,64,384);ctx.lineTo(64,80);ctx.quadraticCurveTo(64,40,104,40);}
+    else{for(let n=0;n<6;n++){const angle=n*Math.PI/3-Math.PI/2,x=256+199*Math.cos(angle),y=232+199*Math.sin(angle);if(n)ctx.lineTo(x,y);else ctx.moveTo(x,y);}ctx.closePath();}
+    ctx.fill();ctx.stroke();ctx.save();ctx.clip();
+    const bits=parseInt(p.pattern,16)>>>0;ctx.fillStyle=c.accent;
+    for(let n=0;n<16;n++){if((bits>>>n)&1){const x=104+(n%4)*101,y=84+Math.floor(n/4)*98;ctx.globalAlpha=.10;ctx.fillRect(x-22,y-22,44,44);}}
+    ctx.restore();ctx.globalAlpha=1;ctx.strokeStyle=c.ink;ctx.fillStyle=c.ink;ctx.lineWidth=17;ctx.beginPath();
+    if(p.symbol==='ring'){ctx.arc(256,225,92,0,Math.PI*2);ctx.stroke();ctx.beginPath();ctx.arc(256,225,31,0,Math.PI*2);ctx.fill();}
+    else if(p.symbol==='spark'){for(let n=0;n<8;n++){const a=n*Math.PI/4-Math.PI/2,r=n%2?37:105,x=256+Math.cos(a)*r,y=225+Math.sin(a)*r;if(n)ctx.lineTo(x,y);else ctx.moveTo(x,y);}ctx.closePath();ctx.fill();}
+    else if(p.symbol==='wave'){for(let row=0;row<3;row++){ctx.moveTo(153,177+row*47);ctx.bezierCurveTo(205,106+row*47,307,248+row*47,359,177+row*47);}ctx.stroke();}
+    else if(p.symbol==='gate'){ctx.moveTo(166,316);ctx.lineTo(166,211);ctx.bezierCurveTo(166,99,346,99,346,211);ctx.lineTo(346,316);ctx.stroke();ctx.beginPath();ctx.moveTo(227,316);ctx.lineTo(285,316);ctx.stroke();}
+    else{ctx.ellipse(256,225,114,53,-Math.PI/4,0,Math.PI*2);ctx.stroke();ctx.beginPath();ctx.arc(256,225,28,0,Math.PI*2);ctx.fill();ctx.fillStyle=c.accent;ctx.beginPath();ctx.arc(337,144,16,0,Math.PI*2);ctx.fill();}
+    ctx.fillStyle=c.accent;ctx.font='700 19px ui-monospace, monospace';ctx.textAlign='center';ctx.fillText('EVERYWHEN',256,367);
+    ctx.fillStyle=c.ink;ctx.font='700 21px ui-monospace, monospace';ctx.fillText('FICTION / CREATIVE BADGE',256,474);ctx.restore();return c;
+  }
+  root.EverywhenIcons=Object.freeze({colors,draw});
+})(globalThis);
+
+</script><script nonce="__MOZCORP_NONCE__" data-moz-source="everywhen.js">
+(function(){
+  'use strict';
+  const C=window.EverywhenCore,I=window.EverywhenIcons,$=id=>document.getElementById(id),pool=new C.SyntheticPool();
+  const CUE_KEY='btw-everywhen-fiction-cue-v1';
+  let current=null,receiptEpoch=0,ramTimer=0,scopeTimer=0,scopeFrame=0,pane='Gut',patternStep=1;
+  let icon={palette:'citron',shape:'circle',symbol:'ring',pattern:'91c36a5e',source:'custom'};
+  const status=(message,error=false)=>{$('ewStatus').textContent=message;$('ewStatus').dataset.error=String(error);};
+  const receiptStatus=(message,error=false)=>{$('ewReceiptProof').textContent=message;$('ewReceiptProof').dataset.error=String(error);};
+  function setPane(next,focus=false){
+    if(!['Gut','Ram','Scope','Icon','Return'].includes(next))return;pane=next;
+    for(const name of ['Gut','Ram','Scope','Icon','Return']){const tab=$('ewTab'+name),active=name===next;tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;$('ewPane'+name).hidden=!active;if(active&&focus)tab.focus();}
+    if(next!=='Scope')stopScope();
+  }
+  const panes=['Gut','Ram','Scope','Icon','Return'];
+  panes.forEach((name,index)=>{$('ewTab'+name).addEventListener('click',()=>setPane(name));$('ewTab'+name).addEventListener('keydown',event=>{let next;if(event.key==='ArrowRight')next=(index+1)%panes.length;else if(event.key==='ArrowLeft')next=(index+panes.length-1)%panes.length;else if(event.key==='Home')next=0;else if(event.key==='End')next=panes.length-1;else return;event.preventDefault();setPane(panes[next],true);});});
+  function saveBlob(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  function facts(items){$('ewReceiptFacts').replaceChildren();for(const [label,value]of items){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=String(value);$('ewReceiptFacts').append(dt,dd);}}
+  function receiptControls(){for(const id of ['ewReceiptSave','ewReceiptVerify','ewReceiptBadge','ewIconReceipt'])$(id).disabled=!current;}
+  function showReceipt(envelope,verified=false){
+    current=envelope;const p=envelope.receipt.payload,ram=p.type==='everywhen.ram-seal.v1';
+    $('ewReceiptTitle').textContent=ram?'RAMcatcher / sealed.':'GUTSTAMP / a moment.';$('ewThrum').textContent=String(envelope.thrum.payload.value);
+    $('ewReceiptSummary').textContent=ram?'A checksum of generated bytes and their metadata. No device memory was inspected.':'A creative record of your self-described sensation. No measurement or diagnosis.';
+    const rows=ram?[['Scope','FICTIONAL / SYNTHETIC'],['Capacity',p.capacityMiB+' MiB'],['Populated',p.usedBytes.toLocaleString()+' bytes'],['Records',p.records.toLocaleString()+' × '+p.recordBytes+' bytes'],['Buffer SHA-256',p.bufferSha256]]:[['Scope','FICTIONAL / SELF-DESCRIBED'],['Sensation',p.sensation],['Intensity',p.intensity+' / 10'],['Note',p.note||'No note'],['Weather',p.weather.condition+(p.weather.temperatureC===null?'':' · '+p.weather.temperatureC+' °C')+' / manual']];
+    facts([...rows,['UTC',p.utc+' / device clock'],['Nonce',p.nonce],['THRUM',envelope.thrum.payload.value+' / separate linked draw']]);
+    $('ewReceiptDigest').textContent='RECEIPT SHA-256\n'+envelope.receipt.sha256;$('ewReceiptText').value=JSON.stringify(envelope,null,2);
+    receiptStatus(verified?'MATCH / receipt fields and linked THRUM fields match their SHA-256 checksums.':'Sealed locally. Verify current recalculates both checksums.');
+    $('ewBufferProof').textContent=ram?'Receipt metadata is available. Supply the saved populated .BIN bytes to check the buffer again.':'Buffer verification applies to RAMcatcher receipts.';receiptControls();
+  }
+  function emptyReceipt(){current=null;$('ewReceiptTitle').textContent='A moment, on paper.';$('ewThrum').textContent='—';$('ewReceiptSummary').textContent='Stamp a self-described moment, seal generated bytes, or paste a saved receipt.';facts([]);$('ewReceiptDigest').textContent='SHA-256 / waiting';$('ewReceiptText').value='';receiptStatus('No receipt has been verified.');receiptControls();}
+  function gutFields(){const temperature=$('ewTemperature').value.trim();return {sensation:$('ewSensation').value,intensity:Number($('ewIntensity').value),note:$('ewNote').value,weather:{condition:$('ewWeather').value,temperatureC:temperature===''?null:Number(temperature)}};}
+  $('ewIntensity').addEventListener('input',()=>{$('ewIntensityValue').textContent=$('ewIntensity').value+' / 10';});
+  $('ewStamp').addEventListener('click',async()=>{
+    const token=++receiptEpoch;const input=gutFields();$('ewStamp').disabled=true;
+    try{const envelope=await C.createGutstamp(input);if(token!==receiptEpoch)return;showReceipt(envelope);status('GUTSTAMP sealed locally. Weather and note are frozen in this receipt. THRUM is a separate draw.');}
+    catch(error){if(token===receiptEpoch)status(error.message,true);}finally{$('ewStamp').disabled=!C.cryptoReady();}
+  });
+  $('ewReceiptSave').addEventListener('click',()=>{if(!current)return;saveBlob(new Blob([JSON.stringify(current,null,2)],{type:'application/json'}),'everywhen-receipt.json');status('Complete receipt saved, including the separately checked THRUM record.');});
+  $('ewReceiptVerify').addEventListener('click',async()=>{
+    if(!current)return;const receipt=current,token=++receiptEpoch;
+    try{const result=await C.verifyReceipt(receipt);if(token!==receiptEpoch||current!==receipt)return;receiptStatus(result.ok?'MATCH / receipt fields and linked THRUM fields match their SHA-256 checksums.':'MISMATCH / the receipt or linked THRUM fields do not match.',!result.ok);status(result.ok?'Integrity matches. This does not prove the description, time, authorship, or randomness.':'Receipt integrity does not match.',!result.ok);}
+    catch(error){if(token===receiptEpoch)status(error.message,true);}
+  });
+  async function loadReceipt(raw,token){
+    const checked=await C.verifyReceipt(raw);if(token!==receiptEpoch)return;
+    if(!checked.ok)throw new Error('Checksum mismatch. The current desk has been kept; the pasted receipt was not loaded.');
+    showReceipt(checked.envelope,true);const p=checked.envelope.receipt.payload;
+    if(p.type==='everywhen.gutstamp.v1'){$('ewSensation').value=p.sensation;$('ewIntensity').value=p.intensity;$('ewIntensityValue').textContent=p.intensity+' / 10';$('ewNote').value=p.note;$('ewWeather').value=p.weather.condition;$('ewTemperature').value=p.weather.temperatureC??'';}
+    status('Saved receipt verified and reloaded exactly. No new nonce, timestamp, or THRUM was generated.');
+  }
+  $('ewImportVerify').addEventListener('click',async()=>{const token=++receiptEpoch;try{await loadReceipt($('ewImportText').value,token);}catch(error){if(token===receiptEpoch)status(error.message,true);}});
+  $('ewImportFile').addEventListener('change',async event=>{
+    const file=event.target.files?.[0];if(!file)return;const token=++receiptEpoch;
+    try{if(file.size>C.MAX_RECEIPT_BYTES)throw new Error('Choose a receipt no larger than 32 KiB.');const raw=await file.text();if(token!==receiptEpoch)return;await loadReceipt(raw,token);}
+    catch(error){if(token===receiptEpoch)status(error.message,true);}finally{event.target.value='';}
+  });
+  $('ewBufferFile').addEventListener('change',async event=>{
+    const file=event.target.files?.[0];if(!file)return;const receipt=current,token=++receiptEpoch;
+    try{if(receipt?.receipt.payload.type!=='everywhen.ram-seal.v1')throw new Error('Load a verified RAMcatcher receipt before checking a .BIN file.');
+      if(file.size>8*C.MIB||file.size!==receipt.receipt.payload.usedBytes)throw new Error('This file size does not match the populated bytes in the RAM receipt.');
+      const bytes=await file.arrayBuffer();if(token!==receiptEpoch||current!==receipt)return;const matches=await C.verifyBuffer(receipt,bytes);if(token!==receiptEpoch||current!==receipt)return;
+      $('ewBufferProof').textContent=matches?'BUFFER MATCH / supplied bytes match this RAM receipt’s buffer SHA-256.':'BUFFER MISMATCH / supplied bytes do not match this RAM receipt.';status(matches?'Saved synthetic bytes checked locally.':'The supplied buffer does not match.',!matches);
+    }catch(error){if(token===receiptEpoch){$('ewBufferProof').textContent=error.message;status(error.message,true);}}finally{event.target.value='';}
+  });
+  function stopRam(){if(ramTimer)clearInterval(ramTimer);ramTimer=0;}
+  function ramPaint(){
+    $('ewRamState').textContent=pool.state.toUpperCase();$('ewRamProgress').max=pool.capacityMiB*C.MIB;$('ewRamProgress').value=pool.usedBytes;
+    $('ewRamBytes').textContent=pool.usedBytes.toLocaleString()+' bytes generated';$('ewRamRecords').textContent=(pool.usedBytes/C.RECORD_BYTES).toLocaleString()+' records';
+    $('ewRamSize').disabled=!!pool.bytes;$('ewRamStart').disabled=!C.cryptoReady()||['running','sealing','sealed','full'].includes(pool.state);$('ewRamStart').textContent=pool.state==='paused'?'Resume':'Start';
+    $('ewRamPause').disabled=pool.state!=='running';$('ewRamSeal').disabled=!C.cryptoReady()||!pool.usedBytes||['sealing','sealed'].includes(pool.state);$('ewRamRelease').disabled=!pool.bytes;
+    $('ewRamSave').disabled=pool.state!=='sealed';$('ewRamViewReceipt').disabled=!pool.receipt;
+  }
+  function ramTick(){try{pool.tick();if(pool.state==='full'){stopRam();$('ewRamStatus').textContent='Capacity reached. The buffer has stopped. Seal it or release it.';}ramPaint();}catch(error){stopRam();pool.pause();ramPaint();status(error.message,true);}}
+  $('ewRamStart').addEventListener('click',()=>{try{pool.start(Number($('ewRamSize').value));ramTick();if(pool.state==='running'&&!ramTimer)ramTimer=setInterval(ramTick,125);$('ewRamStatus').textContent='Generating synthetic random records in this tab.';ramPaint();}catch(error){status(error.message,true);}});
+  $('ewRamPause').addEventListener('click',()=>{stopRam();pool.pause();ramPaint();$('ewRamStatus').textContent='Paused. Existing synthetic bytes are unchanged.';});
+  $('ewRamRelease').addEventListener('click',()=>{stopRam();pool.release();ramPaint();$('ewRamHash').textContent='BUFFER SHA-256 / buffer released';$('ewRamStatus').textContent='The generated buffer was discarded. A displayed receipt remains metadata; it cannot recover released bytes.';status('Synthetic buffer released. Save or clear any receipt separately.');});
+  $('ewRamSeal').addEventListener('click',async()=>{
+    stopRam();const token=++receiptEpoch;let job;
+    try{job=pool.seal();ramPaint();$('ewRamStatus').textContent='Sealing the populated bytes. Writes are stopped.';const receipt=await job;if(!receipt)return;
+      if(token===receiptEpoch){showReceipt(receipt);status('Synthetic buffer sealed. Its receipt and THRUM stay local.');}
+      if(pool.receipt===receipt){$('ewRamHash').textContent='POPULATED BUFFER SHA-256\n'+receipt.receipt.payload.bufferSha256;$('ewRamStatus').textContent='Sealed. Save the .BIN file if you want to check these bytes after release.';}
+    }catch(error){if(token===receiptEpoch)status(error.message,true);}finally{ramPaint();}
+  });
+  $('ewRamSave').addEventListener('click',()=>{try{saveBlob(new Blob([pool.exportBytes()],{type:'application/octet-stream'}),'everywhen-synthetic-buffer.bin');status('Populated synthetic bytes saved locally. Save their receipt too.');}catch(error){status(error.message,true);}});
+  $('ewRamViewReceipt').addEventListener('click',()=>{if(pool.receipt){receiptEpoch++;showReceipt(pool.receipt);status('The sealed buffer’s original receipt is displayed. THRUM was not rerolled.');}});
+  function scopeDraw(){
+    const canvas=$('ewScopeCanvas'),ctx=canvas.getContext('2d');if(!ctx)throw new Error('Canvas patterns are unavailable in this browser.');const c=I.colors[$('ewScopeColor').value],mode=$('ewScopeMode').value;scopeFrame++;
+    ctx.fillStyle=c.bg;ctx.fillRect(0,0,576,288);let seed=(scopeFrame*2654435761)>>>0;const random=()=>{seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;return(seed>>>0)/4294967296;};
+    ctx.fillStyle=c.ink;for(let y=0;y<24;y++)for(let x=0;x<48;x++){const n=random();ctx.globalAlpha=mode==='snow'?.08+n*.5:mode==='grid'?(n>.78?.58:.06):.03+n*.13;ctx.fillRect(x*12+1,y*12+1,mode==='grid'?8:10,mode==='grid'?8:10);}ctx.globalAlpha=1;
+    if(mode==='tide'){ctx.strokeStyle=c.accent;ctx.lineWidth=3;ctx.beginPath();for(let x=0;x<576;x+=3){const y=144+Math.sin(x/48+scopeFrame/8)*48+Math.sin(x/19-scopeFrame/14)*17;if(x)ctx.lineTo(x,y);else ctx.moveTo(x,y);}ctx.stroke();}
+    ctx.fillStyle=c.bg;ctx.fillRect(12,247,300,29);ctx.fillStyle=c.ink;ctx.font='14px ui-monospace, monospace';ctx.fillText('GENERATED / NO DEVICE INPUT',22,268);
+  }
+  function stopScope(){if(scopeTimer)clearInterval(scopeTimer);scopeTimer=0;$('ewScopeState').textContent='STILL FRAME';$('ewScopePlay').textContent='Play pattern';}
+  function safeScopeDraw(){try{scopeDraw();}catch(error){stopScope();$('ewScopePlay').disabled=true;$('ewScopeFrame').disabled=true;status(error.message,true);}}
+  $('ewScopePlay').addEventListener('click',()=>{if(scopeTimer){stopScope();return;}safeScopeDraw();if($('ewScopePlay').disabled)return;scopeTimer=setInterval(safeScopeDraw,125);$('ewScopeState').textContent='GENERATING';$('ewScopePlay').textContent='Pause pattern';});
+  $('ewScopeFrame').addEventListener('click',()=>{stopScope();safeScopeDraw();});
+  for(const id of ['ewScopeMode','ewScopeColor'])$(id).addEventListener('change',safeScopeDraw);
+  function cuePaint(){const packet=C.makeCue(icon,Number($('ewScene').value));$('ewCuePreview').textContent=C.SCENES[packet.scene-1];}
+  function iconPaint(){
+    try{I.draw($('ewIconCanvas'),icon);$('ewIconPalette').value=icon.palette;$('ewIconShape').value=icon.shape;$('ewIconSymbol').value=icon.symbol;$('ewIconSource').textContent=icon.source==='receipt-derived'?'Creative pattern derived from a receipt checksum. The PNG contains no receipt text and is not an identity or authenticity mark.':'Custom creative badge. No entered text appears in the PNG.';cuePaint();}
+    catch(error){$('ewIconSave').disabled=true;status(error.message,true);}
+  }
+  for(const [id,key]of [['ewIconPalette','palette'],['ewIconShape','shape'],['ewIconSymbol','symbol']])$(id).addEventListener('change',()=>{icon={...icon,[key]:$(id).value,source:'custom'};iconPaint();});
+  $('ewIconPattern').addEventListener('click',()=>{patternStep++;icon={...icon,pattern:((patternStep*2654435761)>>>0).toString(16).padStart(8,'0'),source:'custom'};iconPaint();});
+  function badgeFromReceipt(){if(!current)return;icon=C.derivedIcon(current.receipt.sha256);$('ewScene').value=String(current.thrum.payload.value);iconPaint();setPane('Icon');status('A creative badge and fictional scene color were derived locally. Entered fields are excluded from the icon and story cue.');}
+  $('ewIconReceipt').addEventListener('click',badgeFromReceipt);$('ewReceiptBadge').addEventListener('click',badgeFromReceipt);
+  $('ewIconSave').addEventListener('click',async()=>{
+    const token=receiptEpoch;try{const blob=await new Promise((resolve,reject)=>{$('ewIconCanvas').toBlob(value=>value?resolve(value):reject(new Error('The PNG could not be created.')),'image/png');});if(token!==receiptEpoch)return;saveBlob(blob,'everywhen-fictional-icon.png');status('512 × 512 creative badge exported as PNG, with a fictional label.');}
+    catch(error){if(token===receiptEpoch)status(error.message,true);}
+  });
+  $('ewScene').addEventListener('change',cuePaint);
+  $('ewToWorld').addEventListener('click',()=>{try{const packet=C.makeCue(icon,Number($('ewScene').value));MozStore.session.setItem(CUE_KEY,JSON.stringify(packet));window.MozHost.navigate('machine',{anchor:'everywhenStation'});}catch(error){status('The local story cue could not be transferred. Your receipt remains here. '+error.message,true);}});
+  $('ewReturnAll').addEventListener('click',()=>{$('ewReturnText').textContent=C.returnAll().text;status('Fictional AFTERCALC complete: everyone is included. No receipt was required or counted as eligibility.');});
+  $('ewDrawThrum').addEventListener('click',()=>{try{$('ewFreeThrum').textContent=String(C.drawThrum());status('A fresh independent THRUM draw. This does not edit your saved receipt or change RETURN ALL.');}catch(error){status(error.message,true);}});
+  $('ewClearDesk').addEventListener('click',()=>{
+    if(!confirm('Clear entered sensations, notes, receipts, and the synthetic buffer in this tab? Download any receipt you want to keep first.'))return;
+    receiptEpoch++;stopRam();pool.release();stopScope();for(const id of ['ewSensation','ewNote','ewTemperature','ewImportText','ewImportFile','ewBufferFile'])$(id).value='';$('ewIntensity').value='5';$('ewIntensityValue').textContent='5 / 10';$('ewWeather').value='not recorded';$('ewRamSize').value='1';pool.capacityMiB=1;emptyReceipt();ramPaint();
+    $('ewRamStatus').textContent='One buffer at a time. Pause keeps it; release discards it.';$('ewRamHash').textContent='BUFFER SHA-256 / not sealed';$('ewBufferProof').textContent='A RAM receipt checks metadata. To check released bytes again, supply the saved .BIN file.';$('ewFreeThrum').textContent='—';$('ewReturnText').textContent='No receipt is an entrance requirement.';
+    icon={palette:'citron',shape:'circle',symbol:'ring',pattern:'91c36a5e',source:'custom'};$('ewScene').value='1';iconPaint();try{MozStore.session.removeItem(CUE_KEY);}catch{}status('Local desk cleared. Downloaded files are yours to manage. RETURN ALL still includes everyone.');
+  });
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){stopScope();if(pool.state==='running'){stopRam();pool.pause();ramPaint();$('ewRamStatus').textContent='Paused while this page was hidden. Resume when you are ready.';}}});
+  window.addEventListener('pagehide',()=>{stopScope();stopRam();pool.release();receiptEpoch++;ramPaint();$('ewRamHash').textContent='BUFFER SHA-256 / buffer released';$('ewRamStatus').textContent='The synthetic buffer was released when this page was left. A displayed receipt is still available as metadata.';});
+  receiptControls();ramPaint();iconPaint();safeScopeDraw();
+  if(!C.cryptoReady()){$('ewStamp').disabled=true;$('ewDrawThrum').disabled=true;status('Browser SHA-256 or secure randomness is unavailable. The icon maker, generated patterns, and unconditional fictional RETURN ALL still work.',true);}
+  window.MozEverywhenDesk=Object.freeze({cue:()=>C.makeCue(icon,Number($('ewScene').value)),restoreCue:packet=>{const p=C.validateCue(packet);icon={...p.icon};$('ewScene').value=String(p.scene);iconPaint();},stop:()=>{stopScope();stopRam();if(pool.state==='running')pool.pause();}});
+})();
+
+</script><script nonce="__MOZCORP_NONCE__" data-moz-source="adapter/everywhen.js">
+/* Transfer only the original EVERYWHEN fiction cue. Personal desks never enter project saves. */
+(function () {
+  'use strict';
+  const host=window.MozHost,C=window.EverywhenCore;
+  if(!host||!C)throw new Error('EVERYWHEN station host unavailable.');
+  let editVersion=0,restoring=false;
+  const dirty=()=>{if(!restoring){editVersion++;host.dirty?.({editVersion});}};
+  function validate(value){const cue=value?.cue||value;if(!cue||typeof cue!=='object'||Array.isArray(cue)||Object.keys(cue).some(k=>!['format','fictional','scene','icon'].includes(k)))throw new Error('Only an EVERYWHEN fictional cue can cross this boundary.');return C.validateCue(cue);}
+  function capture(){if(!window.MozEverywhenDesk?.cue)throw new Error('Fiction-cue hook unavailable.');return validate(window.MozEverywhenDesk.cue());}
+  function restore(value){const cue=validate(value);if(!window.MozEverywhenDesk?.restoreCue)throw new Error('Fiction-cue hook unavailable.');restoring=true;try{window.MozEverywhenDesk.restoreCue(cue);return{restored:true,editVersion};}finally{restoring=false;}}
+  async function stop(){window.MozEverywhenDesk?.stop?.();await Promise.all([...(host.audioContexts||[])].map(c=>c.suspend?.().catch(()=>{})));return{stopped:true,editVersion};}
+  function focus(value){
+    const anchor=(typeof value==='string'?value:value?.anchor)||'';
+    if(!['','ewPaneIcon','ewPaneGut','ewPaneRam','ewPaneScope','ewPaneReturn'].includes(anchor))throw new Error('Unsupported EVERYWHEN focus target.');
+    const incoming=value&&typeof value==='object'?value.session:undefined;
+    let raw=null;
+    if(incoming!==undefined){if(!incoming||typeof incoming!=='object'||Array.isArray(incoming)||Object.keys(incoming).some(k=>!['btw.integrity.handoff.v1','btw-everywhen-fiction-cue-v1'].includes(k)))throw new Error('Invalid RAM handoff keys.');if(Object.hasOwn(incoming,'btw.integrity.handoff.v1'))throw new Error('Source-review handoffs belong in the Integrity desk.');if(Object.hasOwn(incoming,'btw-everywhen-fiction-cue-v1')){raw=incoming['btw-everywhen-fiction-cue-v1'];if(typeof raw!=='string'||raw.length>4096)throw new Error('Fiction cue too large.');validate(C.parseStrict(raw));}}
+    if(raw!==null){const store=window.MozStore?.session;if(!store)throw new Error('RAM handoff store unavailable.');const key='btw-everywhen-fiction-cue-v1',previous=store.getItem(key);store.setItem(key,raw);try{restore(C.parseStrict(raw));store.removeItem(key);}catch(error){if(previous===null)store.removeItem(key);else store.setItem(key,previous);throw error;}}
+    if(anchor)document.getElementById(anchor)?.scrollIntoView({behavior:'auto',block:'start'});
+    return{focused:true,anchor,handoff:raw!==null,editVersion};
+  }
+  host.register('capture',capture);host.register('restore',restore);host.register('stop',stop);host.register('checkpoint',()=>({editVersion}));
+  host.register('focus',focus);
+  for(const name of ['input','change','click'])document.addEventListener(name,event=>{if(event.isTrusted)dirty();},true);
+  window.addEventListener('mozcorp:init',()=>{const store=window.MozStore?.session,raw=store?.getItem('btw-everywhen-fiction-cue-v1');if(!raw)return;store.removeItem('btw-everywhen-fiction-cue-v1');try{if(raw.length>4096)throw new Error('Fiction cue too large.');restore(C.parseStrict(raw));}catch(error){const status=document.getElementById('ewStatus');if(status)status.textContent='Local fiction cue could not open: '+error.message;}});
+})();
+
+</script>
+</body></html>

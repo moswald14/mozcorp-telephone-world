@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#11151c">
+<meta name="description" content="A little studio for big ideas. Draw a sound, build a beat, paint a melody, arrange a song, and keep what you make.">
+<title>Dot Wave Studio 2 · Make something yours</title>
+<link rel="stylesheet" href="./studio.css">
+</head>
+<body>
+<div id="studio">
+  <header class="topbar">
+    <a href="#sound" class="brand" aria-label="Dot Wave Studio home">
+      <svg class="brandmark" width="34" height="30" viewBox="0 0 34 30" aria-hidden="true"><path d="M1 13h4v4H1zm6-6h4v16H7zm6-6h4v28h-4zm6 6h4v16h-4zm6 6h4v4h-4z" fill="currentColor"/></svg>
+      <span>dot wave<span class="brand-sub">STUDIO <b>2.3</b></span></span>
+    </a>
+    <div class="project-heading"><label class="sr-only" for="project-name">Project name</label><input id="project-name" value="Untitled session" maxlength="64" autocomplete="off"><span id="save-state">Ready when you are</span></div>
+    <div class="file-actions"><button data-action="new" class="quiet">New</button><button data-action="open" class="quiet">Open</button><button data-action="save" class="small-primary">Save project <span class="keyhint">↗</span></button><button data-action="help" class="icon-button" aria-label="Studio guide">?</button></div>
+  </header>
+  <div class="transport" aria-label="Playback controls">
+    <div class="transport-main"><button id="play" data-action="play" class="play-button">▶ <span>Play sound</span></button><button data-action="stop" class="stop-button" title="Stop all · Escape" aria-label="Stop all">■</button><label class="loop-control"><input type="checkbox" id="loop" checked>Loop</label><button id="song-play" data-action="song-play" class="quiet">▶ Hear song</button></div>
+    <div class="clock"><span class="live-dot" id="live-dot"></span><span id="clock">01<span> : </span>1<span> : </span>00</span><small id="playing-scope">STOPPED</small></div>
+    <div class="transport-settings"><label class="tempo">BPM<input type="number" id="bpm" min="40" max="240" value="96"></label><span class="meter" id="meter">4/4</span><label class="master">MASTER<input type="range" id="master" min="0" max="100" value="45" aria-label="Master listening volume"><output id="master-value">45%</output></label><button data-action="listen" class="quiet listen-button" title="Listening EQ">☷</button></div>
+  </div>
+  <div class="app-body">
+    <nav class="workflow" aria-label="Music workflow" id="workflow"></nav>
+    <main id="workspace" tabindex="-1"></main>
+  </div>
+  <footer class="statusbar"><div><span class="status-dot"></span><span id="status" role="status" aria-live="polite">Your studio. Your pace. Start with a sound.</span></div><div><button data-action="undo" id="undo" class="quiet" disabled>↶ Undo</button><button data-action="redo" id="redo" class="quiet" disabled>↷ Redo</button><span class="footer-key">SPACE play / pause</span><span class="footer-key">ESC stop</span></div></footer>
+</div>
+<input type="file" id="file-input" hidden accept=".json,.mid,.midi,.wav">
+<dialog id="modal"><div id="modal-body"></div></dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+<noscript>This studio needs JavaScript enabled to draw and play music.</noscript>
+<script src="./doodle-bridge.js"></script>
+<script src="./studio-app.js"></script>
+</body>
+</html>

@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; script-src &#x27;sha256-Zxk5+sUolH0BU3C0XHzNxF47biyHBhdbJdGc6J/XgvY=&#x27; &#x27;sha256-laI2FbXMEhdk7H92f4irGtFmwD2atREZAPMVpYTT7zA=&#x27; &#x27;sha256-q5msv2D5icW0jhutbGJUmLRUPShuQ2kw9EDuuE+wwvo=&#x27;; style-src &#x27;unsafe-inline&#x27;; img-src data: blob:; font-src data:; media-src data: blob:; frame-src &#x27;self&#x27; data: blob:; connect-src &#x27;none&#x27;; worker-src &#x27;none&#x27;; object-src &#x27;none&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;"><meta name="referrer" content="no-referrer">
+<script nonce="__MOZCORP_NONCE__" data-moz-source="prelude.js">
+// Private station boundary. This code never receives Keeper identity or vault keys.
+(function (root) {
+  'use strict';
+  const protocol = 'doodle-mozcorp/v1', stationId = 'friend-scrubber';
+  const focusAnchors = [];
+  const preferenceKeys = new Set(['btw.mozmoji.fork.v1', 'btw.voodont.blind-backfeed.v1']);
+  const sessionLimits = {'btw.integrity.handoff.v1':700000,'btw-everywhen-fiction-cue-v1':4096};
+  const stations = new Set(['machine','recent','voodont','everywhen','mozville','friend-scrubber','integrity','swordfish','hope-lon','bug-world']);
+  const handlers = new Map(), pending = new Map(), outbound = [], dirtyPreferences = new Set();
+  const audioContexts = new Set(), wrappedAudio = new Map();
+  let token = null, sequence = 0, closed = false, lastDirty = null;
+  for(const name of ['AudioContext','webkitAudioContext']){
+    const native=root[name];if(typeof native!=='function')continue;
+    let wrapped=wrappedAudio.get(native);
+    if(!wrapped){wrapped=new Proxy(native,{construct(target,args,newTarget){const context=Reflect.construct(target,args,newTarget===wrapped?target:newTarget);audioContexts.add(context);return context;}});wrappedAudio.set(native,wrapped);}
+    try{root[name]=wrapped;}catch{}
+  }
+  function post(value) { root.parent.postMessage({protocol,stationId,...value}, '*'); }
+  function flush() { if (!token || closed) return; while(outbound.length) { const message=outbound.shift(); if(message.type!=='request'||pending.has(message.requestId))post({...message,token}); } }
+  function request(requestType, payload = {}) {
+    if (!['save','cloud','upgrades','open-original','open-link','news','hope','pref-set'].includes(requestType)) return Promise.reject(new Error('This station action is not supported.'));
+    if (closed) return Promise.reject(new Error('This station has closed.'));
+    const requestId = stationId+'-'+(++sequence);
+    return new Promise((resolve,reject)=>{
+      const timer=root.setTimeout(()=>{pending.delete(requestId);reject(new Error('The Keeper did not answer. Your work is still in this station.'));},20000);
+      pending.set(requestId,{resolve,reject,timer}); outbound.push({type:'request',requestId,requestType,payload}); flush();
+    });
+  }
+  function preferenceChanged(key,value) {
+    if (!preferenceKeys.has(key)) return;
+    dirtyPreferences.add(key);
+    if(token) request('pref-set',{key,value}).catch(()=>{});
+  }
+  function limitFor(kind,key){return kind==='local'&&preferenceKeys.has(key)?65536:Object.hasOwn(sessionLimits,key)?sessionLimits[key]:2000000;}
+  function store(kind) {
+    const map = new Map();
+    const api={
+      getItem(key){return map.get(String(key))??null;},
+      setItem(key,value){key=String(key);value=String(value);if(key.length>256||value.length>limitFor(kind,key))throw new Error('This station value is too large. Export a file to keep it.');if(!map.has(key)&&map.size>=128)throw new Error('This station memory is full.');let total=key.length+value.length;for(const [k,v]of map)if(k!==key)total+=k.length+v.length;if(total>8000000)throw new Error('This station memory is full. Export a file to keep it.');map.set(key,value);if(kind==='local')preferenceChanged(key,value);},
+      removeItem(key){key=String(key);map.delete(key);if(kind==='local')preferenceChanged(key,null);},
+      clear(){for(const key of map.keys())api.removeItem(key);},key(index){return [...map.keys()][index]??null;},
+      get length(){return map.size;}
+    };
+    return {api,map};
+  }
+  const local=store('local'),session=store('session');
+  const MozStore=Object.freeze({local:local.api,session:session.api,
+    snapshot(){return {local:Object.fromEntries(local.map),session:Object.fromEntries(session.map)};},
+    restore(value){
+      if(!value||typeof value!=='object')throw new Error('Invalid station memory.');
+      const changes=[];
+      for(const [which,target] of [['local',local],['session',session]]){
+        if(value[which]===undefined)continue;
+        if(!value[which]||typeof value[which]!=='object'||Array.isArray(value[which]))throw new Error('Invalid station memory.');
+        const entries=Object.entries(value[which]);if(entries.length>128)throw new Error('Too many station values.');
+        let total=0;for(const [key,text] of entries){if(key.length>256||typeof text!=='string'||text.length>limitFor(which,key))throw new Error('Invalid station value.');total+=key.length+text.length;}if(total>8000000)throw new Error('This station memory is full.');
+        changes.push({target,entries});
+      }
+      for(const {target,entries}of changes){target.map.clear();for(const [key,text]of entries)target.map.set(key,text);}
+    }
+  });
+  function navigate(next,options={}) {
+    if(!stations.has(next))throw new Error('Unknown MozCorp station.');
+    const transfer={};
+    const supplied=options.session||Object.fromEntries(session.map);
+    for(const [key,limit]of Object.entries(sessionLimits))if(Object.hasOwn(supplied,key)){if(typeof supplied[key]!=='string'||supplied[key].length>limit)throw new Error('Invalid station handoff.');transfer[key]=supplied[key];}
+    const anchor=typeof options.anchor==='string'&&/^[A-Za-z][\w-]{0,99}$/.test(options.anchor)?options.anchor:'';
+    outbound.push({type:'navigate',payload:{stationId:next,anchor,session:transfer}});flush();
+  }
+  function register(requestType,handler) {
+    if(!['capture','restore','cloud-restore','stop','checkpoint','focus'].includes(requestType)||typeof handler!=='function')throw new Error('Unknown station adapter.');
+    handlers.set(requestType,handler);return()=>handlers.delete(requestType);
+  }
+  // Station adapters override these narrow defaults after the original scripts.
+  register('capture',()=>{throw new Error('This private desk uses its own export controls and does not create Telephone project snapshots.');});
+  register('restore',()=>{throw new Error('This private desk does not accept generic Telephone project restoration.');});
+  register('checkpoint',()=>({editVersion:0}));
+  register('stop',async()=>{await Promise.all([...audioContexts].map(async context=>{if(context.state!=='closed')try{await context.suspend();}catch{}}));return{stopped:true,editVersion:0};});
+  register('focus',(value={})=>{
+    if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!['anchor','session'].includes(key)))throw new Error('Invalid station focus request.');
+    if(value.session!==undefined&&(!value.session||typeof value.session!=='object'||Array.isArray(value.session)||Object.keys(value.session).length))throw new Error('This private desk does not accept a transferred source or fiction cue.');
+    const anchor=value.anchor??'';if(typeof anchor!=='string'||(anchor&&!focusAnchors.includes(anchor)))throw new Error('Unknown station focus anchor.');
+    if(anchor){const target=root.document.getElementById(anchor);if(!target)throw new Error('This station focus target is unavailable.');target.scrollIntoView({block:'start',behavior:'auto'});}
+    return{focused:true,anchor,editVersion:0};
+  });
+  root.MozStore=MozStore;
+  function dirty(value){if(!value||!Number.isSafeInteger(value.editVersion)||value.editVersion<0)return;lastDirty=value.editVersion;if(token)post({type:'dirty',token,editVersion:lastDirty});}
+  root.MozHost=Object.freeze({navigate,request,register,dirty,audioContexts,get stationId(){return stationId;},get ready(){return token!==null;}});
+  root.addEventListener('message',event=>{
+    if(event.source!==root.parent)return;
+    const message=event.data;
+    if(!message||message.protocol!==protocol||message.stationId!==stationId)return;
+    if(message.type==='init'){
+      if(token!==null||typeof message.token!=='string'||!/^[a-fA-F0-9]{32}$/.test(message.token))return;
+      token=message.token;
+      for(const key of preferenceKeys){const text=message.preferences?.[key];if(typeof text==='string'&&text.length<=65536&&!dirtyPreferences.has(key))local.map.set(key,text);}
+      for(const [key,limit]of Object.entries(sessionLimits)){const text=message.session?.[key];if(typeof text==='string'&&text.length<=limit)session.map.set(key,text);}
+      root.dispatchEvent(new CustomEvent('mozcorp:init',{detail:{stationId}}));
+      for(const key of dirtyPreferences)request('pref-set',{key,value:local.api.getItem(key)}).catch(()=>{});
+      if(lastDirty!==null)post({type:'dirty',token,editVersion:lastDirty});
+      flush();return;
+    }
+    if(!token||message.token!==token)return;
+    if(message.type==='response'){
+      const job=pending.get(message.requestId);if(!job)return;pending.delete(message.requestId);root.clearTimeout(job.timer);
+      if(message.error){
+        const value=message.error,error=new Error(typeof value==='string'?value:typeof value.message==='string'?value.message:'The Keeper could not complete this action.');
+        if(value&&typeof value==='object'){
+          if(Number.isInteger(value.status)&&value.status>=400&&value.status<=599)error.status=value.status;
+          if(typeof value.code==='string'&&/^[A-Za-z0-9_.-]{1,80}$/.test(value.code))error.code=value.code;
+        }
+        job.reject(error);
+      }else job.resolve(message.result);return;
+    }
+    if(message.type==='request'&&typeof message.requestId==='string'&&message.requestId.length<=100){
+      const handler=handlers.get(message.requestType);
+      if(!handler){post({type:'response',token,requestId:message.requestId,error:'This station adapter is unavailable.'});return;}
+      Promise.resolve().then(()=>handler(message.payload)).then(result=>post({type:'response',token,requestId:message.requestId,result}),error=>post({type:'response',token,requestId:message.requestId,error:error?.message||'This station could not complete the action.'}));
+    }
+  });
+  root.document.addEventListener('click',event=>{
+    const link=event.target.closest?.('a');if(!link||link.hasAttribute('download'))return;
+    if(link.dataset.mozStation||link.dataset.mozOriginal||link.dataset.mozService){
+      event.preventDefault();
+      if(link.dataset.mozService==='upgrades')request('upgrades',{action:'open'}).catch(error=>root.alert(error.message));
+      else if(link.dataset.mozStation)navigate(link.dataset.mozStation,{anchor:link.dataset.mozAnchor||''});
+      else request('open-original',{path:link.dataset.mozOriginal,anchor:link.dataset.mozAnchor||''}).catch(error=>root.alert(error.message));
+      return;
+    }
+    // Opaque private frames cannot open popups. Only an actual click may ask the
+    // trusted parent to show an external URL for review; it never opens it here.
+    if(!event.isTrusted||event.defaultPrevented)return;
+    const raw=link.getAttribute('href');if(!raw||raw.startsWith('#'))return;
+    let url;try{url=new URL(raw,root.location.href);}catch{return;}
+    if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.href.length>4096)return;
+    if(link.target==='_blank'||url.origin!==root.location.origin){
+      event.preventDefault();request('open-link',{url:url.href}).catch(error=>root.alert(error.message));
+    }
+  });
+  function ready(){post({type:'ready'});const anchor='';if(anchor)root.document.getElementById(anchor)?.scrollIntoView({block:'start',behavior:'auto'});}
+  if(root.document.readyState==='loading')root.document.addEventListener('DOMContentLoaded',ready,{once:true});else root.setTimeout(ready,0);
+  root.addEventListener('pagehide',()=>{closed=true;outbound.length=0;for(const job of pending.values()){root.clearTimeout(job.timer);job.reject(new Error('This station has closed.'));}pending.clear();handlers.clear();for(const context of audioContexts)if(context.state!=='closed')context.suspend().catch(()=>{});audioContexts.clear();});
+})(window);
+
+</script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b121b">
+  
+  <meta name="referrer" content="no-referrer">
+  <title>Total Friend Scrubber · By The Way…</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%230b121b'/%3E%3Ccircle cx='23' cy='27' r='12' fill='none' stroke='%237ce4da' stroke-width='5'/%3E%3Cpath d='m32 36 15 15' stroke='%23ffc979' stroke-width='6'/%3E%3C/svg%3E">
+  <style nonce="__MOZCORP_NONCE__">:root{color-scheme:dark;--bg:#0b121b;--panel:#131e2b;--edge:#324254;--ink:#edf4fc;--muted:#a5b7ca;--mint:#7ce4da;--amber:#ffc979}*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top left,#152e3a 0,transparent 46rem),var(--bg);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.5}button,input,select,textarea{font:inherit}button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.45}button:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid var(--mint);outline-offset:4px}input,select,textarea{display:block;width:100%;margin-top:6px;border:1px solid #42586f;border-radius:7px;padding:10px 12px;background:#0b1420;color:var(--ink);font-size:1rem}input:focus,select:focus,textarea:focus{outline:2px solid #7ce4da66;outline-offset:1px}textarea{min-height:108px;resize:vertical}label{font-size:.875rem;color:#c6d5e5;font-weight:650}h1,h2,h3,h4,p{margin-top:0}h1{font-size:clamp(1.4rem,3vw,2.15rem);letter-spacing:.035em;line-height:1.2;margin:12px 0 8px}h2{font-size:1.05rem;margin:0}h3{font-size:1.06rem;line-height:1.4;margin-bottom:10px}h4{font-size:.9375rem;margin:20px 0 8px}a{color:#a0f0e7;text-decoration-thickness:1px;text-underline-offset:3px}code{font: .8125rem/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;color:#bbe1e9;overflow-wrap:anywhere}.fs-shell{max-width:1500px;margin:auto;padding:24px}.fs-header{display:flex;justify-content:space-between;align-items:center;gap:18px;margin-bottom:20px}.fs-header p{color:var(--muted);font-size:1rem;margin:0}.fs-back{font-size:.875rem;color:#afc6da;text-decoration:none}.fs-local{font:700 .8125rem ui-monospace,monospace;color:var(--mint);border:1px solid #476c70;background:#102b31;border-radius:7px;padding:10px 12px;white-space:nowrap}.fs-boundary{padding:14px 18px;color:#cfdeed;background:#172335;border:1px solid #496075;border-left:4px solid var(--mint);border-radius:8px;margin-bottom:20px;font-size:.9375rem}.fs-boundary strong{color:#fff}.fs-import,.fs-review{border:1px solid var(--edge);border-radius:12px;background:#111c28;margin-bottom:22px;overflow:hidden}.fs-sectionhead{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:14px 18px;border-bottom:1px solid var(--edge);background:#182535}.fs-sectionhead span{color:var(--muted);font-size:.8125rem}.fs-sectionhead #fsDemoLabel{color:var(--amber);font-weight:800}.fs-importgrid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(260px,.7fr);gap:22px;padding:20px}.fs-fields{display:grid;grid-template-columns:1fr 1fr;gap:14px}.fs-buttons{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:14px 0}.fs-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;background:#25364b;color:#e2edf9;border:1px solid #52667e;border-radius:7px;padding:10px 13px;font-size:.875rem;font-weight:750;line-height:1.4;min-height:42px;text-decoration:none}.fs-btn:hover:not(:disabled){background:#31485c;border-color:#9ac6d2}.fs-btn.fs-primary{color:#09242b;background:var(--mint);border-color:var(--mint)}.fs-btn.fs-primary:hover{background:#a0f2e9}.fs-btn.fs-clear{border-color:#906374;background:#352432;color:#ffe0e4}.fs-filebutton{position:relative;cursor:pointer;overflow:hidden}.fs-filebutton input{position:absolute;inset:0;opacity:0;cursor:pointer;margin:0;width:100%;height:100%;padding:0}.fs-filebutton:focus-within{outline:2px solid var(--mint);outline-offset:4px}.fs-small{font-size:.875rem;line-height:1.55;color:var(--muted);margin:10px 0}.fs-photoinput{border-left:1px solid #344c61;padding-left:22px}.fs-photoinput p{font-size:.9375rem;color:#c4d5e4}.fs-photoinput .fs-small{font-size:.875rem}.fs-textbutton{padding:4px 0;color:#acdacf;background:none;border:0;font-size:.875rem;text-decoration:underline;text-underline-offset:3px}.fs-pastebox{border:1px solid #35495e;border-radius:8px;margin-top:14px}.fs-pastebox summary{font-size:.875rem;padding:11px 13px;cursor:pointer;color:#ceddea}.fs-pastebody{padding:0 13px 12px}.fs-status{padding:12px 18px;color:#b2e6e1;font-size:.875rem;background:#0b242c;border-top:1px solid #2f525c;white-space:pre-wrap;overflow-wrap:anywhere}.fs-status[data-error=true]{color:#ffdaa5;background:#30271e}.fs-metrics{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--edge)}.fs-metrics>div{padding:16px 18px;border-right:1px solid var(--edge)}.fs-metrics>div:last-child{border-right:0}.fs-metrics strong{display:block;font:800 1.7rem ui-monospace,monospace;color:#c8f4f0}.fs-metrics span{font-size:.8125rem;color:var(--muted)}.fs-metrics .fs-metricreview strong{color:var(--amber)}.fs-toolbar{display:grid;grid-template-columns:minmax(220px,1fr) minmax(170px,.6fr) auto;align-items:end;gap:12px;padding:16px 18px}.fs-toolbar .fs-buttons{margin:0}.fs-workspace{display:grid;grid-template-columns:minmax(300px,1.1fr) minmax(320px,1fr);gap:0;border-top:1px solid var(--edge)}.fs-queue{min-width:0;border-right:1px solid var(--edge)}.fs-results{min-height:300px;max-height:800px;overflow:auto;padding:12px;display:grid;gap:8px;align-content:start}.fs-entry{background:#152231;border:1px solid #35485d;border-radius:8px;padding:13px;text-align:left;width:100%;color:var(--ink)}.fs-entry:hover{border-color:#729fb0}.fs-entry[aria-pressed=true]{border-color:var(--mint);box-shadow:inset 3px 0 var(--mint);background:#163039}.fs-entry-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.fs-entry-name{font-size:1rem;word-break:break-word;font-weight:800}.fs-entry-sub{font-size:.8125rem;color:var(--muted);display:block;margin-top:5px;overflow-wrap:anywhere}.fs-entry-flags{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}.fs-flagpill{font-size:.75rem;line-height:1.5;border:1px solid #455a6a;background:#1c2b3a;color:#c7d8e7;border-radius:4px;padding:3px 6px}.fs-flagpill[data-kind=review]{border-color:#806b43;background:#382c19;color:#ffdb9c}.fs-manualpill{font-size:.75rem;color:#c5d8ea;white-space:nowrap}.fs-empty{padding:36px 22px;align-self:start;text-align:center;color:var(--muted)}.fs-empty>span{display:block;font-size:2.1rem;line-height:1.2;color:#78a7b5;margin-bottom:16px}.fs-empty h3{font-size:1.05rem;color:#d9e6f4}.fs-empty p{font-size:.9375rem;max-width:380px;margin:0 auto}.fs-pages{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:12px;border-top:1px solid var(--edge)}.fs-pages span{font-size:.8125rem;color:var(--muted)}.fs-detail{padding:20px;min-width:0;background:#0f1925;max-height:930px;overflow:auto}.fs-detailheading h3{font-size:1.3rem;overflow-wrap:anywhere;margin-bottom:9px}.fs-unknown{font:700 .75rem ui-monospace,monospace;color:#d3dbe7;border:1px solid #596476;border-radius:4px;display:inline-block;padding:6px 8px}.fs-metadata{display:grid;grid-template-columns:104px minmax(0,1fr);gap:8px 12px;margin:20px 0;font-size:.875rem}.fs-metadata dt{color:var(--muted)}.fs-metadata dd{margin:0;color:#d7e6f3;overflow-wrap:anywhere;white-space:pre-wrap}.fs-photoarea{border:1px solid #344659;border-radius:8px;padding:12px;background:#0b131c}.fs-photoarea img{display:block;max-width:100%;max-height:260px;width:auto;object-fit:contain;border-radius:5px;margin:0 auto}.fs-photoarea img[hidden]{display:none}.fs-photoarea p{margin:8px 0 0;overflow-wrap:anywhere}.fs-evidence{display:grid;gap:8px}.fs-evidenceitem{padding:11px 12px;border:1px solid #3d5368;border-radius:7px;background:#162333}.fs-evidenceitem[data-kind=review]{border-left:3px solid var(--amber)}.fs-evidenceitem strong{display:block;font-size:.875rem;color:#e5edf6}.fs-evidenceitem p{font-size:.875rem;color:#b3c6d8;line-height:1.5;margin:6px 0 0;overflow-wrap:anywhere}.fs-yourreview{margin-top:20px;padding-top:2px;border-top:1px solid #35475a}.fs-yourreview label{display:block;margin:12px 0}.fs-footnote{padding:13px 18px;color:#c0cfdd;border-top:1px solid var(--edge);background:#172330;font-size:.875rem}.fs-footer{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;padding:0 4px 24px}.fs-footer strong{font:700 .8125rem ui-monospace,monospace;letter-spacing:.045em;color:#b7d6db}.fs-footer p{font-size:.875rem;line-height:1.6;color:var(--muted);max-width:920px;margin:8px 0}.fs-footer .fs-btn{flex-shrink:0}[hidden]{display:none!important}
+@media(max-width:1000px){.fs-toolbar{grid-template-columns:1fr 1fr}.fs-toolbar .fs-buttons{grid-column:1/-1}.fs-importgrid{grid-template-columns:1fr}.fs-photoinput{padding:16px 0 0;border-left:0;border-top:1px solid #344c61}.fs-local{font-size:.75rem}.fs-header{align-items:flex-start}.fs-workspace{grid-template-columns:1fr 1fr}.fs-detail{padding:16px}.fs-metadata{grid-template-columns:80px minmax(0,1fr)}}
+@media(max-width:700px){.fs-shell{padding:14px}.fs-header{display:block}.fs-local{margin-top:14px;display:inline-block}.fs-fields{grid-template-columns:1fr}.fs-metrics{grid-template-columns:repeat(2,1fr)}.fs-metrics>div{border-bottom:1px solid var(--edge)}.fs-metrics>div:nth-child(2){border-right:0}.fs-metrics>div:nth-child(n+3){border-bottom:0}.fs-workspace{grid-template-columns:1fr}.fs-queue{border-right:0}.fs-results{max-height:400px}.fs-detail{border-top:1px solid var(--edge);max-height:none}.fs-toolbar{grid-template-columns:1fr}.fs-footer{display:block}.fs-footer .fs-clear{margin-top:12px}.fs-entry-head{flex-wrap:wrap}.fs-importgrid{padding:16px}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+
+.fs-detailheading h3:focus{outline:2px solid var(--mint);outline-offset:5px;border-radius:2px}
+</style>
+</head>
+<body>
+  <main class="fs-shell">
+    <header class="fs-header"><div><a class="fs-back" href="#" data-moz-station="machine">By The Way… · World</a><h1>TOTAL FRIEND SCRUBBER</h1><p>Friend-list review · duplicates, photo reuse, and links to check.</p></div><span class="fs-local">LOCAL FILES · PRIVATE REVIEW</span></header>
+    <div class="fs-boundary"><strong>Account authenticity: UNKNOWN.</strong> A face cannot establish who controls an account. This mode checks the records and image files you supply, then gives you evidence to review.</div>
+
+    <section class="fs-import" aria-labelledby="fsImportTitle">
+      <div class="fs-sectionhead"><h2 id="fsImportTitle">1 · Bring your lists</h2><span>No social accounts connected</span></div>
+      <div class="fs-importgrid">
+        <div class="fs-importmain">
+          <div class="fs-fields"><label>Batch label (optional)<input id="fsBatchLabel" type="text" maxlength="100" placeholder="My friends / following / gaming pals"></label><label>Expected profile domain (optional)<input id="fsExpectedDomain" type="text" maxlength="180" placeholder="e.g. instagram.com"></label></div>
+          <div class="fs-buttons"><label class="fs-btn fs-primary fs-filebutton" for="fsListFiles">Choose list files<input id="fsListFiles" type="file" accept=".csv,.tsv,.json,.txt,text/csv,application/json,text/plain" multiple></label><button class="fs-btn" id="fsSample" type="button">Try fictional sample</button><button class="fs-btn" id="fsTemplate" type="button">Download CSV template</button></div>
+          <p class="fs-small">Combine CSV, TSV, JSON, or one-name/URL-per-line lists. Up to 5,000 entries. Files stay in this tab; closing or reloading clears unsaved work.</p>
+          <details class="fs-pastebox"><summary>Paste a list or inspect supported fields</summary><div class="fs-pastebody"><label for="fsPaste">CSV, JSON, or one name/profile URL per line<textarea id="fsPaste" maxlength="2000000" placeholder="display_name,platform,profile_url,photo_file&#10;Example Friend,My network,https://social.example/friend,friend.jpg"></textarea></label><button class="fs-btn" id="fsImportPaste" type="button">Add pasted list</button><p class="fs-small">Useful columns: <code>display_name, platform, account_id, username, profile_url, photo_file, photo_url, expected_domain, notes</code>. Optional explicit observations: <code>money_request, login_code_request, urgent_request</code>. Missing information stays unknown. Common <code>friends_v2</code> and <code>string_list_data</code> JSON shapes are supported. Unsupported exports produce an error instead of guessed records.</p></div></details>
+        </div>
+        <div class="fs-photoinput"><h3>2 · Optional photo files</h3><p>Match <code>photo_file</code> to the filename in your export, then choose those local photos.</p><label class="fs-btn fs-filebutton" for="fsPhotoFiles">Choose photo files<input id="fsPhotoFiles" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple></label><p class="fs-small">Finds identical file bytes using SHA-256. It does not recognize faces or decide whether an image is AI-generated. Crops and resized copies may not match.</p><button class="fs-textbutton" id="fsForgetPhotos" type="button" disabled>Remove loaded photos</button></div>
+      </div>
+      <div id="fsImportStatus" class="fs-status" role="status">Choose exports from the friend lists you want to review. No lists have been read.</div>
+    </section>
+
+    <section class="fs-review" aria-labelledby="fsReviewTitle">
+      <div class="fs-sectionhead"><h2 id="fsReviewTitle">3 · Review the evidence</h2><span id="fsDemoLabel" hidden>FICTIONAL SAMPLE DATA</span></div>
+      <div class="fs-metrics"><div><strong id="fsEntryCount">0</strong><span>list entries</span></div><div><strong id="fsListCount">0</strong><span>imported lists</span></div><div><strong id="fsPhotoCount">0</strong><span>photo files hashed</span></div><div class="fs-metricreview"><strong id="fsFlagCount">0</strong><span>entries with review flags</span></div></div>
+      <div class="fs-toolbar"><label class="fs-searchlabel">Find an entry<input id="fsSearch" type="search" placeholder="Name, handle, list, or profile URL" maxlength="200"></label><label>Show<select id="fsFilter"><option value="all">All entries</option><option value="review">Review flags</option><option value="unreviewed">Not reviewed by me</option><option value="photos">Photo reuse</option><option value="duplicates">Duplicate list entries</option><option value="confirmed">Confirmed by me</option></select></label><div class="fs-buttons"><button class="fs-btn" id="fsSaveSession" type="button" disabled>Save review .JSON</button><button class="fs-btn" id="fsExportCSV" type="button" disabled>Export findings .CSV</button></div></div>
+      <div class="fs-workspace">
+        <div class="fs-queue"><div id="fsResults" class="fs-results" aria-label="Friend-list entries"><div class="fs-empty"><span>⁝</span><h3>Your review desk is empty</h3><p>Import lists above, or use the fictional sample to see how evidence flags work.</p></div></div><div class="fs-pages"><button class="fs-btn" id="fsPrevious" type="button" disabled>Previous</button><span id="fsPageInfo">0 entries</span><button class="fs-btn" id="fsNext" type="button" disabled>Next</button></div></div>
+        <aside id="fsDetailPane" class="fs-detail" aria-labelledby="fsDetailTitle"><div id="fsDetailEmpty" class="fs-empty"><span>⌕</span><h3 id="fsDetailTitle">Choose an entry</h3><p>See its source row, actual link destination, image-file checks, and your review notes.</p></div>
+          <div id="fsDetailContent" hidden>
+            <div class="fs-detailheading"><h3 id="fsDetailName" tabindex="-1"></h3><span class="fs-unknown">AUTOMATED VERDICT: UNKNOWN</span></div>
+            <dl id="fsMetadata" class="fs-metadata"></dl>
+            <div class="fs-photoarea"><img id="fsPhotoPreview" alt="Selected local profile photo; identity has not been determined" hidden><p id="fsPhotoDetail" class="fs-small">No local photo matched to this record.</p></div>
+            <h4>Observed in your files</h4><div id="fsEvidence" class="fs-evidence"></div>
+            <div class="fs-yourreview"><h4>Your review</h4><p class="fs-small">For an unexpected request, use a contact method you already know to check with the person. No flag here proves an account is fake.</p><label>Status<select id="fsReviewState"><option value="unreviewed">Not reviewed</option><option value="followup">I want to check this</option><option value="confirmed">Confirmed by me through another channel</option><option value="resolved">I reviewed the flags / explained them</option></select></label><label>How did you check?<select id="fsReviewMethod"><option value="">Choose a method</option><option value="known-phone">Called a number I already knew</option><option value="in-person">Spoke in person</option><option value="known-channel">Used another previously known channel</option><option value="records">Compared my own records</option><option value="other">Other · described in note</option></select></label><label>Review note<textarea id="fsReviewNote" maxlength="2000" placeholder="What you checked, when, and any innocent explanation for the flag."></textarea></label><button class="fs-btn fs-primary" id="fsSaveNote" type="button">Keep this review note</button><p id="fsReviewStamp" class="fs-small">No personal review recorded.</p></div>
+          </div>
+        </aside>
+      </div>
+      <div class="fs-footnote">No checks triggered means only that these checks found nothing in the supplied data. It does not verify an account or guarantee a message is safe.</div>
+    </section>
+
+    <footer class="fs-footer"><div><strong>YOUR DATA STAYS AT THIS DESK.</strong><p>No remote photos are fetched. Lists, photos, and notes are excluded from the game hopper and cloud savepoints. Save a review file if you want to resume later; photos must be selected again.</p><p>Guidance: <a href="https://consumer.ftc.gov/consumer-alerts/2023/10/friend-request-could-be-scammer" target="_blank" rel="noopener noreferrer">FTC · social account scams</a> · <a href="https://consumer.ftc.gov/consumer-alerts/2025/02/looking-love-watch-out-scammers" target="_blank" rel="noopener noreferrer">FTC · checking profile photos</a> · <a href="https://support.microsoft.com/en-us/security/protect-yourself-from-phishing" target="_blank" rel="noopener noreferrer">Microsoft · inspecting links</a></p></div><button class="fs-btn fs-clear" id="fsClear" type="button">Clear this review session</button></footer>
+  </main>
+  <script nonce="__MOZCORP_NONCE__" data-moz-source="friend-scrubber-core.js">
+/* Local record and file review. No identity recognition, network access, or authenticity scoring. */
+(function (root) {
+  'use strict';
+  const VERSION = 'BTW-FRIEND-REVIEW-1', LIMIT = 5000;
+  const scalar = (value, max = 2000) => typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value).normalize('NFC').trim().slice(0, max) : '';
+  const header = value => scalar(value, 120).replace(/^\uFEFF/, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const bool = value => value === true || value === 1 || typeof value === 'string' && /^(true|yes|1|y)$/i.test(value.trim()) ? true : value === false || value === 0 || typeof value === 'string' && /^(false|no|0|n)$/i.test(value.trim()) ? false : null;
+  const basename = value => scalar(value, 500).replace(/\\/g, '/').split('/').filter(Boolean).pop() || '';
+  function identifier(value) {
+    if (typeof value === 'number' && !Number.isSafeInteger(value)) throw new Error('Account IDs must be exact. Export large numeric IDs as quoted JSON strings, or use CSV; this list has not been imported.');
+    if (typeof value === 'string' && value.trim().length > 200) throw new Error('An account ID exceeds 200 characters. Check the original export; it has not been shortened or matched.');
+    return scalar(value, 200);
+  }
+  function table(text, separator) {
+    const rows = []; let row = [], field = '', quoted = false, afterQuote = false, line = 1, start = 1;
+    const finishRow = () => { row.push(field); if (row.some(x => x.trim())) rows.push({ values: row, line: start }); if (rows.length > LIMIT + 1) throw new Error('A list can contain at most 5,000 entries.'); row = []; field = ''; afterQuote = false; start = line + 1; };
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (quoted) { if (ch === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else { quoted = false; afterQuote = true; } } else { field += ch; if (ch === '\n') line++; } continue; }
+      if (ch === '"' && !field && !afterQuote) { quoted = true; continue; }
+      if (ch === separator) { row.push(field); if (row.length > 60) throw new Error('A CSV row has too many columns.'); field = ''; afterQuote = false; continue; }
+      if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; finishRow(); line++; continue; }
+      if (afterQuote && ch.trim()) throw new Error('Unexpected text after a closing CSV quote at line ' + line + '.');
+      if (!afterQuote) field += ch;
+    }
+    if (quoted) throw new Error('The list ends inside a quoted CSV field.');
+    if (field || row.length) finishRow();
+    return rows;
+  }
+  const aliases = {
+    displayName: ['displayname','fullname','name','friendname','title'], username: ['username','handle','screenname'], accountId: ['accountid','userid','friendid','id'],
+    platform: ['platform','network','service'], profileUrl: ['profileurl','profilelink','url','link','href'], photoFile: ['photofile','imagefile','avatarfile','filename'],
+    photoUrl: ['photourl','imageurl','avatarurl','pictureurl','profilepictureurl'], expectedDomain: ['expecteddomain','profiledomain'], notes: ['notes','note','description'],
+    moneyRequest: ['moneyrequest','requestedmoney'], codeRequest: ['logincoderequest','coderequest','requestedcode'], urgentRequest: ['urgentrequest','urgency'], messageLinks: ['messagelinks','messagelink']
+  };
+  function readObject(value, fallback = {}) {
+    if (typeof value === 'string') return /^https?:\/\//i.test(value.trim()) ? { profileUrl: value } : { displayName: value };
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const fields = Object.create(null); for (const [key, val] of Object.entries(value)) fields[header(key)] = val;
+    const out = {};
+    for (const [name, options] of Object.entries(aliases)) { const key = options.find(k => Object.hasOwn(fields, k)); if (key) out[name] = fields[key]; }
+    if (Object.hasOwn(out, 'accountId')) out.accountId = identifier(out.accountId);
+    const data = Array.isArray(value.string_list_data) ? value.string_list_data.find(x => x && typeof x === 'object') : null;
+    if (data) { out.profileUrl ||= data.href; out.username ||= data.value; }
+    if (!out.photoFile && !out.photoUrl) { const photo = fields.photo || fields.avatar || fields.picture; if (typeof photo === 'string') out[/^https?:\/\//i.test(photo) ? 'photoUrl' : 'photoFile'] = photo; }
+    if (!out.displayName && !out.username && !out.accountId && !out.profileUrl) return null;
+    return { ...fallback, ...out };
+  }
+  function findRows(data, depth = 0) {
+    if (Array.isArray(data)) return data;
+    if (!data || typeof data !== 'object' || depth > 3) return null;
+    for (const key of ['friends_v2','friends','followers','following','relationships_following','relationships_followers','connections','entries','data','records']) {
+      if (Object.hasOwn(data,key)) { const found = findRows(data[key], depth + 1); if (found) return found; }
+    }
+    return readObject(data) ? [data] : null;
+  }
+  function parse(text) {
+    text = String(text).replace(/^\uFEFF/, '').trim(); if (!text) throw new Error('The list is empty.');
+    if (text.length > 20000000) throw new Error('Review files must be under 20 MB of text.');
+    if (/^[\[{]/.test(text)) {
+      let data; try { data = JSON.parse(text); } catch { throw new Error('This JSON file could not be read. Check that it is a complete export.'); }
+      if (data?.format === VERSION) return { session: data };
+      if (text.length > 2000000) throw new Error('List exports must be under 2 MB of text.');
+      const values = findRows(data); if (!values) throw new Error('No supported friend-list rows found in this JSON. Use a row array or the CSV template.');
+      if (values.length > LIMIT) throw new Error('A list can contain at most 5,000 entries.');
+      const rows = values.map((v, i) => ({ fields: readObject(v), row: i + 1 })).filter(x => x.fields);
+      if (!rows.length) throw new Error('No names, handles, account IDs, or profile URLs were found.');
+      return { rows, skipped: values.length - rows.length };
+    }
+    if (text.length > 2000000) throw new Error('List exports must be under 2 MB of text.');
+    const first = text.split(/\r?\n/, 1)[0], separator = first.includes('\t') ? '\t' : ',';
+    const known = new Set(Object.values(aliases).flat().concat(['photo','avatar','picture']));
+    if (!first.includes(separator) && !known.has(header(first))) {
+      const lines = text.split(/\r?\n/).map((x, i) => ({ fields: readObject(x), row: i + 1 })).filter(x => scalar(x.fields?.displayName) || scalar(x.fields?.profileUrl));
+      if (lines.length > LIMIT) throw new Error('A list can contain at most 5,000 entries.');
+      return { rows: lines, skipped: 0 };
+    }
+    const parsed = table(text, separator); if (parsed.length < 2) throw new Error('Include a header and at least one row.');
+    const keys = parsed[0].values.map(header); if (new Set(keys).size !== keys.length) throw new Error('The CSV has duplicate column headings. Give each column a distinct name.');
+    if (!keys.some(k => known.has(k))) throw new Error('CSV headers were not recognized. Start with display_name, profile_url, or the downloaded template.');
+    const rows = []; let skipped = 0;
+    for (const row of parsed.slice(1)) { if (row.values.length !== keys.length) throw new Error('CSV column count differs at line ' + row.line + '. Quote text that contains commas.'); const fields = readObject(Object.fromEntries(keys.map((k,i) => [k,row.values[i]]))); if (fields) rows.push({ fields, row: row.line }); else skipped++; }
+    if (!rows.length) throw new Error('No usable friend-list entries found.');
+    return { rows, skipped };
+  }
+  function normalize(fields, source, row, id) {
+    const username = scalar(fields.username, 120), name = scalar(fields.displayName, 200), photoFile = scalar(fields.photoFile, 500);
+    const links = Array.isArray(fields.messageLinks) ? fields.messageLinks : scalar(fields.messageLinks, 3000).split(/[|\n]/);
+    return {
+      id, displayName: name || (username ? '@' + username.replace(/^@/, '') : 'Unnamed entry'), username, accountId: identifier(fields.accountId), platform: scalar(fields.platform, 100),
+      profileUrl: scalar(fields.profileUrl, 2000), photoFile, photoUrl: scalar(fields.photoUrl, 2000), expectedDomain: scalar(fields.expectedDomain || source.expectedDomain, 180),
+      notes: scalar(fields.notes, 2000), moneyRequest: bool(fields.moneyRequest), codeRequest: bool(fields.codeRequest), urgentRequest: bool(fields.urgentRequest),
+      messageLinks: links.map(x => scalar(x, 2000)).filter(Boolean).slice(0, 8), sourceId: source.id, sourceList: source.label, sourceFile: source.file, sourceRow: row,
+      review: { state: 'unreviewed', method: '', note: '', at: '', imported: false }
+    };
+  }
+  function expectedHost(value) {
+    if (!scalar(value)) return '';
+    try { const url = new URL(/^[a-z][a-z0-9+.-]*:/i.test(value) ? value : 'https://' + value); return ['http:','https:'].includes(url.protocol) && !url.username && !url.password ? url.hostname.toLowerCase().replace(/\.$/, '') : ''; } catch { return ''; }
+  }
+  function inspectUrl(value, expected = '', prefix = 'Profile link') {
+    const raw = scalar(value, 2000), observations = [], add = (code, kind, title, detail) => observations.push({ code, kind, title, detail });
+    if (!raw) return { host: '', canonical: '', observations, supplied: false };
+    if (/[\u0000-\u0020\u007f]/.test(raw)) { add('url-invalid','review',prefix + ' has whitespace or control characters','The imported address needs correction before use. It has not been opened.'); return {host:'',canonical:'',observations,supplied:true}; }
+    let url; try { url = new URL(/^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : 'https://' + raw); } catch { add('url-invalid','review',prefix + ' is not a valid URL','The address could not be parsed. Check the original export.'); return {host:'',canonical:'',observations,supplied:true}; }
+    if (!['https:','http:'].includes(url.protocol) || !url.hostname) { add('url-scheme','review',prefix + ' uses an unsupported scheme','Only HTTP or HTTPS profile addresses can be inspected; this value remains plain text.'); return {host:'',canonical:'',observations,supplied:true}; }
+    const host = url.hostname.toLowerCase().replace(/\.$/, '');
+    if (url.username || url.password) add('url-credentials','review',prefix + ' includes credentials before the host','Actual hostname: ' + host + '. Text before @ is not the destination domain.');
+    if (url.protocol === 'http:') add('url-http','info',prefix + ' uses HTTP','This address does not request HTTPS. That observation alone does not establish account authenticity.');
+    const wanted = expectedHost(expected);
+    if (expected && !wanted) add('expected-domain-invalid','info','Expected domain could not be read','Correct the optional expected_domain field to apply a domain comparison.');
+    if (wanted && host !== wanted && !host.endsWith('.' + wanted)) add('url-domain','review',prefix + ' differs from your expected domain','Expected ' + wanted + '; actual hostname ' + host + '. Check that this is the intended destination.');
+    if (host.split('.').some(p => p.startsWith('xn--'))) add('url-idn','info',prefix + ' has an internationalized hostname','Parsed hostname: ' + host + '. Internationalized names can be legitimate; compare the exact spelling.');
+    if (['bit.ly','tinyurl.com','t.co','is.gd','buff.ly','ow.ly'].includes(host)) add('url-short','review',prefix + ' is a shortened address','The final destination is unknown. This review does not follow redirects.');
+    if (url.port && !['80','443'].includes(url.port)) add('url-port','info',prefix + ' uses a non-default port','Port ' + url.port + ' appears in the supplied address. Check whether it is expected.');
+    url.hash = ''; for (const key of [...url.searchParams.keys()]) if (/^utm_/i.test(key) || ['fbclid','gclid'].includes(key)) url.searchParams.delete(key);
+    return { host, canonical: url.username || url.password ? '' : url.href, observations, supplied: true };
+  }
+  function accountKey(record, parsed) {
+    const platform = scalar(record.platform).toLowerCase();
+    if (record.accountId && platform) return 'id:' + platform + ':' + record.accountId;
+    if (parsed.canonical) return 'url:' + parsed.canonical;
+    if (record.username && platform) return 'handle:' + platform + ':' + record.username.replace(/^@/,'').toLowerCase();
+    return '';
+  }
+  function analyze(records, photos = []) {
+    const photoNames = new Map(), accountGroups = new Map(), photoGroups = new Map();
+    for (const photo of photos) { const key = basename(photo.name); if (!photoNames.has(key)) photoNames.set(key, []); photoNames.get(key).push(photo); }
+    const items = records.map(record => {
+      const url = inspectUrl(record.profileUrl, record.expectedDomain), evidence = [...url.observations];
+      for (const link of record.messageLinks || []) evidence.push(...inspectUrl(link, '', 'Message link').observations);
+      const key = accountKey(record, url);
+      if (!record.profileUrl) evidence.push({code:'no-profile-url',kind:'info',title:'No profile URL supplied',detail:'The entry is kept as imported. Missing data does not imply a fake account.'});
+      for (const [field,title,detail] of [['codeRequest','Login-code request noted','Your import explicitly records a request for a login or verification code. Check the request through an independently known channel.'],['moneyRequest','Money request noted','Your import explicitly records a request for money. Confirm the request independently; this does not identify who sent it.'],['urgentRequest','Urgent request noted','Your import explicitly records urgency. Review the context before acting.']]) if (record[field] === true) evidence.push({code:field,kind:'review',title,detail});
+      const matches = record.photoFile ? photoNames.get(basename(record.photoFile)) || [] : [];
+      const uniqueHashes = new Set(matches.map(p => p.digest)); let photo = null;
+      if (matches.length && uniqueHashes.size === 1) photo = matches[0];
+      else if (matches.length > 1) evidence.push({code:'photo-ambiguous',kind:'info',title:'Photo filename is ambiguous',detail:'Different selected files share this filename. No photo has been assigned; use distinct filenames.'});
+      else if (record.photoFile) evidence.push({code:'photo-missing',kind:'info',title:'Referenced photo file is not loaded',detail:'Choose ' + basename(record.photoFile) + ' to check its bytes. The photo has not been analyzed.'});
+      const item = { record, evidence, host: url.host, accountKey: key, photo, photoChecked: Boolean(photo), reviewCount: 0, authenticity: 'UNKNOWN' };
+      if (key) { if (!accountGroups.has(key)) accountGroups.set(key, []); accountGroups.get(key).push(item); }
+      const photoKey = photo ? 'bytes:' + photo.digest : record.photoUrl ? 'reference:' + record.photoUrl : '';
+      if (photoKey) { if (!photoGroups.has(photoKey)) photoGroups.set(photoKey, []); photoGroups.get(photoKey).push(item); }
+      return item;
+    });
+    let duplicateGroups = 0, reusedGroups = 0;
+    for (const group of accountGroups.values()) {
+      if (group.length < 2) continue; duplicateGroups++; const ids = group.slice(0, 26).map(x => x.record.id);
+      const names = new Set(group.map(x => x.record.displayName.toLocaleLowerCase()));
+      for (const item of group) {
+        item.evidence.push({code:'duplicate-entry',kind:'info',title:'Same account reference in ' + group.length + ' rows',detail:'This can happen when friend lists overlap or exports repeat. It is a duplicate record observation, not an impersonation verdict.',related:ids.filter(id => id !== item.record.id).slice(0,25)});
+        if (names.size > 1) item.evidence.push({code:'name-variation',kind:'info',title:'Name labels differ for this account reference',detail:'Aliases, renames, and exports taken at different times can explain different labels. Compare your records.'});
+      }
+    }
+    for (const [photoKey, group] of photoGroups) {
+      const accounts = new Set(group.map(x => x.accountKey || 'row:' + x.record.id)); if (accounts.size < 2) continue; reusedGroups++;
+      const ids = group.slice(0, 26).map(x => x.record.id), bytes = photoKey.startsWith('bytes:');
+      for (const item of group) item.evidence.push({code:bytes?'photo-bytes':'photo-reference',kind:'review',title:bytes?'Matching photo-file bytes across entries':'Same photo URL across entries',detail:(bytes?'A local SHA-256 match establishes identical file contents.':'The imported photo URL text matches; the remote image was not fetched.') + ' Reuse may be a shared avatar, artwork, multiple accounts, or something worth checking. It does not match faces or prove impersonation.',related:ids.filter(id => id !== item.record.id).slice(0,25)});
+    }
+    for (const item of items) item.reviewCount = item.evidence.filter(e => e.kind === 'review').length;
+    return { items, summary: { entries: records.length, reviewEntries: items.filter(x => x.reviewCount).length, duplicateGroups, reusedPhotoGroups: reusedGroups, photoFiles: photos.length } };
+  }
+  async function digest(value) {
+    if (!root.crypto?.subtle) throw new Error('This browser needs WebCrypto for local file checks.');
+    const buffer = typeof value === 'string' ? new TextEncoder().encode(value) : value;
+    const result = await root.crypto.subtle.digest('SHA-256', buffer); return Array.from(new Uint8Array(result), b => b.toString(16).padStart(2, '0')).join('');
+  }
+  function csvCell(value) { let text = scalar(value, 20000); if (/^[\s\u0000-\u0020]*[=+@-]/.test(text)) text = "'" + text; return '"' + text.replace(/"/g,'""') + '"'; }
+  function findingsCsv(analysis) {
+    const columns = ['display_name','platform','account_id','username','profile_url','actual_hostname','source_list','source_file','source_row','automated_authenticity','evidence','photo_file','photo_sha256_this_session','your_review','verification_method','review_note','review_date','review_origin'];
+    const rows = analysis.items.map(item => { const r = item.record; return [r.displayName,r.platform,r.accountId,r.username,r.profileUrl,item.host,r.sourceList,r.sourceFile,r.sourceRow,'UNKNOWN',item.evidence.map(e => e.title + ': ' + e.detail).join(' | '),r.photoFile,item.photo?.digest||'',r.review.state,r.review.method,r.review.note,r.review.at,r.review.imported?'Imported note; not reverified here':r.review.at?'Your note in this session':'No review recorded']; });
+    return '\uFEFF' + [columns,...rows].map(row => row.map(csvCell).join(',')).join('\r\n');
+  }
+  function restoreSession(data) {
+    if (!data || data.format !== VERSION || !Array.isArray(data.records) || !data.records.length || data.records.length > LIMIT) throw new Error('This is not a supported friend-review file.');
+    const sources = [], sourceMap = new Map();
+    const records = data.records.map((r, index) => {
+      if (!r || typeof r !== 'object') throw new Error('Review file contains an unreadable entry.');
+      const sourceKey = scalar(r.sourceId,160) || 'restored-list';
+      if (!sourceMap.has(sourceKey)) { const source={id:sourceKey,label:scalar(r.sourceList,100)||'Restored list',file:scalar(r.sourceFile,200)||'review.json',expectedDomain:'',contentHash:''}; sourceMap.set(sourceKey,source);sources.push(source); }
+      const id = 'restored-' + index;
+      const record = normalize(r,sourceMap.get(sourceKey),Number.isSafeInteger(r.sourceRow)&&r.sourceRow>0?r.sourceRow:index+1,id);
+      const review = r.review; if (review && ['unreviewed','followup','confirmed','resolved'].includes(review.state)) {
+        const method = ['known-phone','in-person','known-channel','records','other'].includes(review.method)?review.method:'';
+        const supportedConfirmation = review.state !== 'confirmed' || ['known-phone','in-person','known-channel'].includes(method);
+        record.review = {state:supportedConfirmation?review.state:'followup',method,note:scalar(review.note,2000),at:scalar(review.at,60),imported:true};
+      }
+      return record;
+    });
+    return { records,sources,demo:data.demo===true };
+  }
+  root.FriendScrubberCore = Object.freeze({VERSION,LIMIT,scalar,bool,basename,table,parse,normalize,inspectUrl,expectedHost,accountKey,analyze,digest,csvCell,findingsCsv,restoreSession});
+})(globalThis);
+
+</script>
+  <script nonce="__MOZCORP_NONCE__" data-moz-source="friend-scrubber.js">
+(function () {
+  'use strict';
+  const C = window.FriendScrubberCore, $ = id => document.getElementById(id), PAGE_SIZE = 50;
+  let records = [], sources = [], photos = [], analysis = C.analyze([]), selectedId = '', page = 0, batchNumber = 0, revision = 0, demo = false, busy = false;
+  const methods = {'known-phone':'Called a previously known number','in-person':'Spoke in person','known-channel':'Used another previously known channel',records:'Compared own records',other:'Other'};
+  function status(text, error = false) { $('fsImportStatus').textContent = text; $('fsImportStatus').dataset.error = String(error); }
+  function setBusy(value) { busy = value; for (const id of ['fsListFiles','fsPhotoFiles','fsImportPaste','fsSample','fsSaveSession','fsExportCSV','fsBatchLabel','fsExpectedDomain','fsPaste','fsReviewState','fsReviewMethod','fsReviewNote','fsSaveNote']) $(id).disabled = value || (['fsSaveSession','fsExportCSV'].includes(id) && !records.length); $('fsForgetPhotos').disabled = value || !photos.length; }
+  function download(name, value, type) { const url = URL.createObjectURL(new Blob([value],{type})), a = document.createElement('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
+  function forgetPhotos() { $('fsPhotoPreview').removeAttribute('src'); $('fsPhotoPreview').hidden = true; for (const p of photos) URL.revokeObjectURL(p.url); photos = []; $('fsPhotoFiles').value = ''; }
+  function emptySession() { revision++; forgetPhotos(); records = []; sources = []; selectedId = ''; page = 0; demo = false; busy = false; $('fsListFiles').value = ''; $('fsPaste').value = ''; $('fsBatchLabel').value = ''; $('fsExpectedDomain').value = ''; $('fsSearch').value = ''; $('fsFilter').value = 'all'; $('fsReviewNote').value = ''; setBusy(false); rerun(); }
+  function reviewLabel(record) { return {unreviewed:'Not reviewed',followup:'Check requested',confirmed:'Confirmed by you',resolved:'Reviewed by you'}[record.review.state] || 'Not reviewed'; }
+  function currentItem() { return analysis.items.find(item => item.record.id === selectedId); }
+  function filteredItems() {
+    const q = $('fsSearch').value.trim().toLocaleLowerCase(), filter = $('fsFilter').value;
+    return analysis.items.filter(item => {
+      const r = item.record;
+      if (q && ![r.displayName,r.username,r.platform,r.sourceList,r.sourceFile,r.profileUrl].join(' ').toLocaleLowerCase().includes(q)) return false;
+      if (filter === 'review') return item.reviewCount > 0;
+      if (filter === 'unreviewed') return r.review.state === 'unreviewed';
+      if (filter === 'photos') return item.evidence.some(e => ['photo-bytes','photo-reference'].includes(e.code));
+      if (filter === 'duplicates') return item.evidence.some(e => e.code === 'duplicate-entry');
+      if (filter === 'confirmed') return r.review.state === 'confirmed';
+      return true;
+    });
+  }
+  function renderMetrics() {
+    $('fsEntryCount').textContent = records.length; $('fsListCount').textContent = sources.length; $('fsPhotoCount').textContent = photos.length; $('fsFlagCount').textContent = analysis.summary.reviewEntries;
+    $('fsForgetPhotos').disabled = !photos.length || busy; $('fsDemoLabel').hidden = !demo; setBusy(busy);
+  }
+  function renderResults() {
+    const list = $('fsResults'), all = filteredItems(); list.replaceChildren(); page = Math.min(page, Math.max(0, Math.ceil(all.length / PAGE_SIZE) - 1));
+    if (!all.length) { const box = document.createElement('div'); box.className = 'fs-empty'; const title = document.createElement('h3'), p = document.createElement('p'); title.textContent = records.length ? 'No entries match this view' : 'Your review desk is empty'; p.textContent = records.length ? 'Try a different filter or name. Identity remains unverified.' : 'Import your lists or try the fictional sample.'; box.append(title,p);list.append(box); }
+    all.slice(page * PAGE_SIZE,(page + 1) * PAGE_SIZE).forEach(item => {
+      const r = item.record, button = document.createElement('button'); button.type = 'button'; button.className = 'fs-entry'; button.setAttribute('aria-pressed',String(r.id === selectedId));
+      const head = document.createElement('div'); head.className = 'fs-entry-head'; const name = document.createElement('span'); name.className = 'fs-entry-name';name.textContent = r.displayName;
+      const manual = document.createElement('span');manual.className = 'fs-manualpill';manual.textContent = reviewLabel(r) + (r.review.imported ? ' · imported note' : '');head.append(name,manual);
+      const sub = document.createElement('span');sub.className = 'fs-entry-sub';sub.textContent = (r.platform || 'Platform unspecified') + ' · ' + r.sourceList + ' · row ' + r.sourceRow;
+      const tags = document.createElement('div');tags.className = 'fs-entry-flags';
+      const findings = item.evidence.filter(e => e.kind === 'review').concat(item.evidence.filter(e => e.kind !== 'review')).slice(0,3);
+      if (!findings.length) findings.push({kind:'info',title:'No checks triggered · identity unknown'});
+      findings.forEach(e => {const tag=document.createElement('span');tag.className='fs-flagpill';tag.dataset.kind=e.kind;tag.textContent=e.title;tags.append(tag);});
+      button.append(head,sub,tags);button.addEventListener('click',()=>select(r.id));list.append(button);
+    });
+    $('fsPageInfo').textContent = all.length ? (page * PAGE_SIZE + 1) + '–' + Math.min((page + 1) * PAGE_SIZE,all.length) + ' of ' + all.length : '0 entries';
+    $('fsPrevious').disabled = page === 0; $('fsNext').disabled = (page + 1) * PAGE_SIZE >= all.length;
+  }
+  function select(id) { if (selectedId === id) return; if (selectedId && !saveReview(false)) return; selectedId = id;renderResults();renderDetail();$('fsDetailName').focus({preventScroll:true});if(window.matchMedia('(max-width:700px)').matches)$('fsDetailContent').scrollIntoView({block:'start',behavior:'auto'}); }
+  function metadata(label,value) { const term = document.createElement('dt'),definition = document.createElement('dd');term.textContent = label;definition.textContent = value || 'Not supplied';$('fsMetadata').append(term,definition); }
+  function renderDetail() {
+    const item = currentItem();$('fsDetailEmpty').hidden = Boolean(item);$('fsDetailContent').hidden = !item;$('fsDetailPane').setAttribute('aria-labelledby',item?'fsDetailName':'fsDetailTitle');
+    if (!item) { const img=$('fsPhotoPreview');img.removeAttribute('src');img.hidden=true;for(const id of ['fsDetailName','fsMetadata','fsEvidence','fsPhotoDetail','fsReviewStamp'])$(id).replaceChildren();$('fsReviewState').value='unreviewed';$('fsReviewMethod').value='';$('fsReviewNote').value='';return; }
+    const r = item.record;$('fsDetailName').textContent = r.displayName;$('fsMetadata').replaceChildren();
+    metadata('Source',r.sourceFile + ' · row ' + r.sourceRow);metadata('List',r.sourceList);metadata('Platform',r.platform);metadata('Account ID',r.accountId);metadata('Handle',r.username);metadata('Profile URL',r.profileUrl);metadata('Actual host',item.host);metadata('Expected host',r.expectedDomain);if(r.notes)metadata('Imported note',r.notes);
+    if (r.messageLinks.length)metadata('Message links',r.messageLinks.join('\n'));
+    const img = $('fsPhotoPreview');img.removeAttribute('src');img.hidden = !item.photo;
+    if (item.photo) { img.src = item.photo.url;$('fsPhotoDetail').textContent = 'LOCAL FILE: ' + item.photo.name + '\nSHA-256: ' + item.photo.digest + '\nFile bytes checked. Face identity and image origin are undetermined.'; }
+    else $('fsPhotoDetail').textContent = r.photoFile ? 'Photo reference: ' + r.photoFile + '\nNo unambiguous local file is attached.' : r.photoUrl ? 'Remote photo reference supplied. It has not been fetched: ' + r.photoUrl : 'No local photo supplied. This is not a fake-account indicator.';
+    const evidence = $('fsEvidence');evidence.replaceChildren();
+    const findings = item.evidence.length ? item.evidence : [{kind:'info',title:'No checks triggered',detail:'No listed check found an issue in these imported fields. Who controls this account remains unknown.'}];
+    for(const e of findings){const card=document.createElement('div');card.className='fs-evidenceitem';card.dataset.kind=e.kind;const title=document.createElement('strong'),detail=document.createElement('p');title.textContent=e.title;detail.textContent=e.detail;card.append(title,detail);
+      if(e.related?.length){const related=document.createElement('div');related.className='fs-buttons';e.related.slice(0,4).forEach(id=>{const other=analysis.items.find(x=>x.record.id===id);if(!other)return;const b=document.createElement('button');b.type='button';b.className='fs-btn';b.textContent=other.record.displayName+' · row '+other.record.sourceRow;b.addEventListener('click',()=>select(id));related.append(b);});card.append(related);}evidence.append(card);}
+    $('fsReviewState').value=r.review.state;$('fsReviewMethod').value=r.review.method;$('fsReviewNote').value=r.review.note;renderStamp(r);
+  }
+  function renderStamp(r) { $('fsReviewStamp').textContent = r.review.at ? (r.review.imported ? 'Imported review note · not reverified here. ' : 'Your record · ') + r.review.at + (r.review.method ? ' · ' + methods[r.review.method] : '') : 'No personal review recorded. Keep notes locally, then save a review file to retain them.'; }
+  function saveReview(announce = true) {
+    const item=currentItem();if(!item)return true;const r=item.record,state=$('fsReviewState').value,method=$('fsReviewMethod').value,note=$('fsReviewNote').value.trim();
+    if(state===r.review.state&&method===r.review.method&&note===r.review.note){if(announce)status('This review note is already current. Save the review file to keep it after closing.');return true;}
+    if(state==='confirmed'&&!['known-phone','in-person','known-channel'].includes(method)){status('For “Confirmed by me,” choose a separate contact channel you already knew. Record comparisons alone do not establish who controls an account.',true);return false;}
+    if(state==='resolved'&&!note){status('Add a short explanation of what you reviewed before marking the flags resolved.',true);return false;}
+    r.review={state,method,note:C.scalar(note,2000),at:new Date().toISOString(),imported:false};renderStamp(r);renderResults();
+    if(announce)status('Your review note is kept in this tab. Save review .JSON to resume later. Automated authenticity remains UNKNOWN.');return true;
+  }
+  function rerun() { analysis=C.analyze(records,photos);if(!analysis.items.some(x=>x.record.id===selectedId))selectedId=analysis.items[0]?.record.id||'';renderMetrics();renderResults();renderDetail(); }
+  function applyImport(parsed,source) {
+    if(parsed.session){const restored=C.restoreSession(parsed.session);if((records.length && demo!==restored.demo)||(photos.length && !demo && restored.demo))throw new Error('Fictional samples and personal reviews stay separate. Save your current work, then clear this session before importing this file.');if(records.length+restored.records.length>C.LIMIT)throw new Error('This import would exceed 5,000 entries. Start a separate review session.');
+      const prefix='review-'+(++batchNumber)+'-';const mapping=new Map();restored.sources.forEach(s=>{const next={...s,id:prefix+s.id};mapping.set(s.id,next.id);sources.push(next);});records.push(...restored.records.map(r=>({...r,id:prefix+r.id,sourceId:mapping.get(r.sourceId)})));demo=demo||restored.demo;return {count:restored.records.length,note:'Imported review notes are labeled as imported. Choose photo files again to recheck them.'};}
+    if(demo)throw new Error('Clear the fictional sample before adding your own lists. Save its review file first if you want to keep your sample notes.');
+    if(records.length+parsed.rows.length>C.LIMIT)throw new Error('This import would exceed 5,000 entries. Start a separate review session.');
+    const additions=parsed.rows.map((r,i)=>C.normalize(r.fields,source,r.row,source.id+'-'+i));sources.push(source);records.push(...additions);return {count:parsed.rows.length,note:parsed.skipped?parsed.skipped+' unsupported row(s) were skipped.':''};
+  }
+  async function importText(text,file,token) {
+    const parsed=C.parse(text),contentHash=await C.digest(text);if(token!==revision)return null;
+    if(sources.some(s=>s.contentHash===contentHash)){return file+': identical list already imported; skipped.';}
+    const source={id:'list-'+(++batchNumber),file:C.scalar(file,200),label:$('fsBatchLabel').value.trim()||C.scalar(file,100),expectedDomain:$('fsExpectedDomain').value.trim(),contentHash};
+    const previousSourceCount=sources.length,result=applyImport(parsed,source);if(parsed.session&&sources[previousSourceCount])sources[previousSourceCount].contentHash=contentHash;return file+': '+result.count+' entries added. '+result.note;
+  }
+  $('fsListFiles').addEventListener('change',async e=>{
+    const files=Array.from(e.target.files||[]);if(!files.length)return;if(files.length>10){status('Choose up to 10 list files at a time.',true);e.target.value='';return;}if(!saveReview(false))return;
+    const token=++revision;setBusy(true);status('Reading your selected list files locally…');const messages=[];
+    try{for(const file of files){if(token!==revision)return;try{if(file.size>20000000)throw new Error('File exceeds the 20 MB review-file limit.');const result=await importText(await file.text(),file.name,token);if(result)messages.push(result);}catch(err){messages.push(file.name+': '+err.message);}}
+      if(token===revision){rerun();status(messages.join('\n'));}
+    }finally{if(token===revision){setBusy(false);e.target.value='';}}
+  });
+  $('fsImportPaste').addEventListener('click',async()=>{if(busy||!saveReview(false))return;const token=++revision;setBusy(true);try{const result=await importText($('fsPaste').value,'Pasted list '+(batchNumber+1),token);if(token===revision){rerun();status(result||'Import cancelled.');}}catch(err){if(token===revision)status(err.message,true);}finally{if(token===revision)setBusy(false);}});
+  function photoType(bytes) {if(bytes.length>=8&&[137,80,78,71,13,10,26,10].every((n,i)=>bytes[i]===n))return'image/png';if(bytes.length>=3&&bytes[0]===255&&bytes[1]===216&&bytes[2]===255)return'image/jpeg';if(bytes.length>=12&&String.fromCharCode(...bytes.slice(0,4))==='RIFF'&&String.fromCharCode(...bytes.slice(8,12))==='WEBP')return'image/webp';return'';}
+  $('fsPhotoFiles').addEventListener('change',async e=>{
+    const files=Array.from(e.target.files||[]);if(!files.length)return;if(!saveReview(false))return;const token=++revision;setBusy(true);status('Checking selected photo-file bytes locally…');let added=0;const problems=[];
+    try{for(const file of files){if(token!==revision)return;try{if(photos.length>=200)throw new Error('200-photo limit reached.');if(!file.size||file.size>8*1024*1024)throw new Error('Use a non-empty photo under 8 MB.');if(photos.reduce((n,p)=>n+p.size,0)+file.size>100*1024*1024)throw new Error('100 MB total photo limit reached.');const bytes=await file.arrayBuffer();if(token!==revision)return;const type=photoType(new Uint8Array(bytes));if(!type)throw new Error('Only JPEG, PNG, and WebP image files are accepted.');const digest=await C.digest(bytes);if(token!==revision)return;
+      if(photos.some(p=>p.name===file.name&&p.digest===digest))continue;const url=URL.createObjectURL(new Blob([bytes],{type}));photos.push({name:file.name,digest,size:file.size,type,url});added++;}catch(err){problems.push(file.name+': '+err.message);}}
+      if(token===revision){rerun();status(added+' photo file(s) hashed. Matching bytes are a reuse clue, not a face match or fake-account verdict.'+(problems.length?'\n'+problems.join('\n'):''));}
+    }finally{if(token===revision){setBusy(false);e.target.value='';}}
+  });
+  $('fsPhotoPreview').addEventListener('error',()=>{const item=currentItem(),img=$('fsPhotoPreview');if(!item?.photo || !img.getAttribute('src'))return;img.hidden=true;$('fsPhotoDetail').textContent='LOCAL FILE: '+item.photo.name+'\nSHA-256: '+item.photo.digest+'\nFile bytes were hashed, but this browser could not display the image. No face or image-origin assessment was performed.';});
+  $('fsForgetPhotos').addEventListener('click',()=>{if(busy||!saveReview(false))return;forgetPhotos();rerun();status('Loaded photo files and previews were removed. List references remain; no image has been uploaded.');});
+  $('fsSearch').addEventListener('input',()=>{page=0;renderResults();});$('fsFilter').addEventListener('change',()=>{page=0;renderResults();});
+  $('fsPrevious').addEventListener('click',()=>{page=Math.max(0,page-1);renderResults();});$('fsNext').addEventListener('click',()=>{page++;renderResults();});$('fsSaveNote').addEventListener('click',()=>saveReview());
+  const sample='display_name,platform,account_id,profile_url,photo_url,expected_domain,money_request,login_code_request,notes\nMira Example,Example Network,100,https://social.example/mira,https://images.example/shared-avatar.png,social.example,false,false,Fictional sample\nMira Example,Example Network,100,https://social.example/mira,https://images.example/shared-avatar.png,social.example,false,false,Overlapping export of the same account\nBlue Acorn,Example Network,200,https://social.example/acorn,https://images.example/shared-avatar.png,social.example,false,false,Shared avatar URL can have innocent explanations\nJun Example,Example Network,300,https://social.example@elsewhere.example/jun,,social.example,false,true,Actual host differs from text before @\nRae Example,Example Network,400,https://social.example.elsewhere.example/rae,,social.example,true,false,Domain comparison needs review\nQuiet Example,Example Network,500,,,social.example,false,false,Missing photo and URL do not mean fake';
+  $('fsSample').addEventListener('click',()=>{if(busy)return;if(records.length||photos.length){status('Clear this session before opening the fictional sample, so it stays separate from your real lists and photos.');return;}const source={id:'demo-'+(++batchNumber),file:'FICTIONAL-SAMPLE.csv',label:'FICTIONAL SAMPLE',expectedDomain:'social.example',contentHash:'demo'};applyImport(C.parse(sample),source);demo=true;rerun();status('FICTIONAL SAMPLE ONLY. Inspect a duplicate entry, a shared photo URL, and two misleading link structures. Clear this session before adding your own lists. No real people or photos were loaded.');});
+  $('fsTemplate').addEventListener('click',()=>download('friend-list-template.csv','display_name,platform,account_id,username,profile_url,photo_file,photo_url,expected_domain,money_request,login_code_request,urgent_request,notes\nExample Friend,My network,,friend,https://social.example/friend,friend.jpg,,social.example,false,false,false,Replace this fictional row with your own export\n','text/csv;charset=utf-8'));
+  $('fsSaveSession').addEventListener('click',()=>{if(!records.length||!saveReview(false))return;const output=JSON.stringify({format:C.VERSION,savedAt:new Date().toISOString(),demo,scope:'Local user-supplied records. Automated authenticity UNKNOWN. Photo bytes excluded; reselect photos after import.',records},null,2);if(output.length>20000000){status('This review is too large for a resumable file. Export findings, then review smaller batches.',true);return;}download('friend-review-'+new Date().toISOString().slice(0,10)+'.json',output,'application/json');status('Review file saved with your lists and notes. Photo bytes are excluded; select the photos again when resuming.');});
+  $('fsExportCSV').addEventListener('click',()=>{if(!records.length||!saveReview(false))return;download('friend-review-findings.csv',C.findingsCsv(analysis),'text/csv;charset=utf-8');status('Findings exported with source rows, exact observations, and your review notes. Formula-like CSV cells were escaped for spreadsheet safety.');});
+  $('fsClear').addEventListener('click',()=>{if((records.length||photos.length)&&!confirm('Clear imported lists, photo previews, and unsaved review notes from this tab? Save a review file first if you want to keep them.'))return;emptySession();status('Review session cleared. No social contacts were removed or messaged.');});
+  window.addEventListener('pagehide',e=>{if(!e.persisted)for(const p of photos)URL.revokeObjectURL(p.url);});
+  rerun();
+})();
+
+</script>
+
+</body>
+</html>

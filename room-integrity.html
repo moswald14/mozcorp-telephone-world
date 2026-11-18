@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src &#x27;none&#x27;; script-src &#x27;sha256-9JAkxAf6SKzGENGBPUu+lEIW5s6/s43yxesjSUqn0EA=&#x27; &#x27;sha256-JqDgtQewO/q0u1Qtd83CZPhvMNKJqlrzwhy5Jx9pj/8=&#x27; &#x27;sha256-q0CSARKj16hVq2XGUukzPe7tQ0waxUAIDS09gzO9Fgs=&#x27; &#x27;sha256-qhZDCovclFhv9Po29JEunzFA6yunjkeDzukuWZpiGxA=&#x27;; style-src &#x27;unsafe-inline&#x27;; img-src data: blob:; font-src data:; media-src data: blob:; frame-src &#x27;self&#x27; data: blob:; connect-src &#x27;none&#x27;; worker-src &#x27;none&#x27;; object-src &#x27;none&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;"><meta name="referrer" content="no-referrer">
+<script nonce="__MOZCORP_NONCE__" data-moz-source="prelude.js">
+// Private station boundary. This code never receives Keeper identity or vault keys.
+(function (root) {
+  'use strict';
+  const protocol = 'doodle-mozcorp/v1', stationId = 'integrity';
+  const focusAnchors = [];
+  const preferenceKeys = new Set(['btw.mozmoji.fork.v1', 'btw.voodont.blind-backfeed.v1']);
+  const sessionLimits = {'btw.integrity.handoff.v1':700000,'btw-everywhen-fiction-cue-v1':4096};
+  const stations = new Set(['machine','recent','voodont','everywhen','mozville','friend-scrubber','integrity','swordfish','hope-lon','bug-world']);
+  const handlers = new Map(), pending = new Map(), outbound = [], dirtyPreferences = new Set();
+  const audioContexts = new Set(), wrappedAudio = new Map();
+  let token = null, sequence = 0, closed = false, lastDirty = null;
+  for(const name of ['AudioContext','webkitAudioContext']){
+    const native=root[name];if(typeof native!=='function')continue;
+    let wrapped=wrappedAudio.get(native);
+    if(!wrapped){wrapped=new Proxy(native,{construct(target,args,newTarget){const context=Reflect.construct(target,args,newTarget===wrapped?target:newTarget);audioContexts.add(context);return context;}});wrappedAudio.set(native,wrapped);}
+    try{root[name]=wrapped;}catch{}
+  }
+  function post(value) { root.parent.postMessage({protocol,stationId,...value}, '*'); }
+  function flush() { if (!token || closed) return; while(outbound.length) { const message=outbound.shift(); if(message.type!=='request'||pending.has(message.requestId))post({...message,token}); } }
+  function request(requestType, payload = {}) {
+    if (!['save','cloud','upgrades','open-original','open-link','news','hope','pref-set'].includes(requestType)) return Promise.reject(new Error('This station action is not supported.'));
+    if (closed) return Promise.reject(new Error('This station has closed.'));
+    const requestId = stationId+'-'+(++sequence);
+    return new Promise((resolve,reject)=>{
+      const timer=root.setTimeout(()=>{pending.delete(requestId);reject(new Error('The Keeper did not answer. Your work is still in this station.'));},20000);
+      pending.set(requestId,{resolve,reject,timer}); outbound.push({type:'request',requestId,requestType,payload}); flush();
+    });
+  }
+  function preferenceChanged(key,value) {
+    if (!preferenceKeys.has(key)) return;
+    dirtyPreferences.add(key);
+    if(token) request('pref-set',{key,value}).catch(()=>{});
+  }
+  function limitFor(kind,key){return kind==='local'&&preferenceKeys.has(key)?65536:Object.hasOwn(sessionLimits,key)?sessionLimits[key]:2000000;}
+  function store(kind) {
+    const map = new Map();
+    const api={
+      getItem(key){return map.get(String(key))??null;},
+      setItem(key,value){key=String(key);value=String(value);if(key.length>256||value.length>limitFor(kind,key))throw new Error('This station value is too large. Export a file to keep it.');if(!map.has(key)&&map.size>=128)throw new Error('This station memory is full.');let total=key.length+value.length;for(const [k,v]of map)if(k!==key)total+=k.length+v.length;if(total>8000000)throw new Error('This station memory is full. Export a file to keep it.');map.set(key,value);if(kind==='local')preferenceChanged(key,value);},
+      removeItem(key){key=String(key);map.delete(key);if(kind==='local')preferenceChanged(key,null);},
+      clear(){for(const key of map.keys())api.removeItem(key);},key(index){return [...map.keys()][index]??null;},
+      get length(){return map.size;}
+    };
+    return {api,map};
+  }
+  const local=store('local'),session=store('session');
+  const MozStore=Object.freeze({local:local.api,session:session.api,
+    snapshot(){return {local:Object.fromEntries(local.map),session:Object.fromEntries(session.map)};},
+    restore(value){
+      if(!value||typeof value!=='object')throw new Error('Invalid station memory.');
+      const changes=[];
+      for(const [which,target] of [['local',local],['session',session]]){
+        if(value[which]===undefined)continue;
+        if(!value[which]||typeof value[which]!=='object'||Array.isArray(value[which]))throw new Error('Invalid station memory.');
+        const entries=Object.entries(value[which]);if(entries.length>128)throw new Error('Too many station values.');
+        let total=0;for(const [key,text] of entries){if(key.length>256||typeof text!=='string'||text.length>limitFor(which,key))throw new Error('Invalid station value.');total+=key.length+text.length;}if(total>8000000)throw new Error('This station memory is full.');
+        changes.push({target,entries});
+      }
+      for(const {target,entries}of changes){target.map.clear();for(const [key,text]of entries)target.map.set(key,text);}
+    }
+  });
+  function navigate(next,options={}) {
+    if(!stations.has(next))throw new Error('Unknown MozCorp station.');
+    const transfer={};
+    const supplied=options.session||Object.fromEntries(session.map);
+    for(const [key,limit]of Object.entries(sessionLimits))if(Object.hasOwn(supplied,key)){if(typeof supplied[key]!=='string'||supplied[key].length>limit)throw new Error('Invalid station handoff.');transfer[key]=supplied[key];}
+    const anchor=typeof options.anchor==='string'&&/^[A-Za-z][\w-]{0,99}$/.test(options.anchor)?options.anchor:'';
+    outbound.push({type:'navigate',payload:{stationId:next,anchor,session:transfer}});flush();
+  }
+  function register(requestType,handler) {
+    if(!['capture','restore','cloud-restore','stop','checkpoint','focus'].includes(requestType)||typeof handler!=='function')throw new Error('Unknown station adapter.');
+    handlers.set(requestType,handler);return()=>handlers.delete(requestType);
+  }
+  // Station adapters override these narrow defaults after the original scripts.
+  register('capture',()=>{throw new Error('This private desk uses its own export controls and does not create Telephone project snapshots.');});
+  register('restore',()=>{throw new Error('This private desk does not accept generic Telephone project restoration.');});
+  register('checkpoint',()=>({editVersion:0}));
+  register('stop',async()=>{await Promise.all([...audioContexts].map(async context=>{if(context.state!=='closed')try{await context.suspend();}catch{}}));return{stopped:true,editVersion:0};});
+  register('focus',(value={})=>{
+    if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!['anchor','session'].includes(key)))throw new Error('Invalid station focus request.');
+    if(value.session!==undefined&&(!value.session||typeof value.session!=='object'||Array.isArray(value.session)||Object.keys(value.session).length))throw new Error('This private desk does not accept a transferred source or fiction cue.');
+    const anchor=value.anchor??'';if(typeof anchor!=='string'||(anchor&&!focusAnchors.includes(anchor)))throw new Error('Unknown station focus anchor.');
+    if(anchor){const target=root.document.getElementById(anchor);if(!target)throw new Error('This station focus target is unavailable.');target.scrollIntoView({block:'start',behavior:'auto'});}
+    return{focused:true,anchor,editVersion:0};
+  });
+  root.MozStore=MozStore;
+  function dirty(value){if(!value||!Number.isSafeInteger(value.editVersion)||value.editVersion<0)return;lastDirty=value.editVersion;if(token)post({type:'dirty',token,editVersion:lastDirty});}
+  root.MozHost=Object.freeze({navigate,request,register,dirty,audioContexts,get stationId(){return stationId;},get ready(){return token!==null;}});
+  root.addEventListener('message',event=>{
+    if(event.source!==root.parent)return;
+    const message=event.data;
+    if(!message||message.protocol!==protocol||message.stationId!==stationId)return;
+    if(message.type==='init'){
+      if(token!==null||typeof message.token!=='string'||!/^[a-fA-F0-9]{32}$/.test(message.token))return;
+      token=message.token;
+      for(const key of preferenceKeys){const text=message.preferences?.[key];if(typeof text==='string'&&text.length<=65536&&!dirtyPreferences.has(key))local.map.set(key,text);}
+      for(const [key,limit]of Object.entries(sessionLimits)){const text=message.session?.[key];if(typeof text==='string'&&text.length<=limit)session.map.set(key,text);}
+      root.dispatchEvent(new CustomEvent('mozcorp:init',{detail:{stationId}}));
+      for(const key of dirtyPreferences)request('pref-set',{key,value:local.api.getItem(key)}).catch(()=>{});
+      if(lastDirty!==null)post({type:'dirty',token,editVersion:lastDirty});
+      flush();return;
+    }
+    if(!token||message.token!==token)return;
+    if(message.type==='response'){
+      const job=pending.get(message.requestId);if(!job)return;pending.delete(message.requestId);root.clearTimeout(job.timer);
+      if(message.error){
+        const value=message.error,error=new Error(typeof value==='string'?value:typeof value.message==='string'?value.message:'The Keeper could not complete this action.');
+        if(value&&typeof value==='object'){
+          if(Number.isInteger(value.status)&&value.status>=400&&value.status<=599)error.status=value.status;
+          if(typeof value.code==='string'&&/^[A-Za-z0-9_.-]{1,80}$/.test(value.code))error.code=value.code;
+        }
+        job.reject(error);
+      }else job.resolve(message.result);return;
+    }
+    if(message.type==='request'&&typeof message.requestId==='string'&&message.requestId.length<=100){
+      const handler=handlers.get(message.requestType);
+      if(!handler){post({type:'response',token,requestId:message.requestId,error:'This station adapter is unavailable.'});return;}
+      Promise.resolve().then(()=>handler(message.payload)).then(result=>post({type:'response',token,requestId:message.requestId,result}),error=>post({type:'response',token,requestId:message.requestId,error:error?.message||'This station could not complete the action.'}));
+    }
+  });
+  root.document.addEventListener('click',event=>{
+    const link=event.target.closest?.('a');if(!link||link.hasAttribute('download'))return;
+    if(link.dataset.mozStation||link.dataset.mozOriginal||link.dataset.mozService){
+      event.preventDefault();
+      if(link.dataset.mozService==='upgrades')request('upgrades',{action:'open'}).catch(error=>root.alert(error.message));
+      else if(link.dataset.mozStation)navigate(link.dataset.mozStation,{anchor:link.dataset.mozAnchor||''});
+      else request('open-original',{path:link.dataset.mozOriginal,anchor:link.dataset.mozAnchor||''}).catch(error=>root.alert(error.message));
+      return;
+    }
+    // Opaque private frames cannot open popups. Only an actual click may ask the
+    // trusted parent to show an external URL for review; it never opens it here.
+    if(!event.isTrusted||event.defaultPrevented)return;
+    const raw=link.getAttribute('href');if(!raw||raw.startsWith('#'))return;
+    let url;try{url=new URL(raw,root.location.href);}catch{return;}
+    if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.href.length>4096)return;
+    if(link.target==='_blank'||url.origin!==root.location.origin){
+      event.preventDefault();request('open-link',{url:url.href}).catch(error=>root.alert(error.message));
+    }
+  });
+  function ready(){post({type:'ready'});const anchor='';if(anchor)root.document.getElementById(anchor)?.scrollIntoView({block:'start',behavior:'auto'});}
+  if(root.document.readyState==='loading')root.document.addEventListener('DOMContentLoaded',ready,{once:true});else root.setTimeout(ready,0);
+  root.addEventListener('pagehide',()=>{closed=true;outbound.length=0;for(const job of pending.values()){root.clearTimeout(job.timer);job.reject(new Error('This station has closed.'));}pending.clear();handlers.clear();for(const context of audioContexts)if(context.state!=='closed')context.suspend().catch(()=>{});audioContexts.clear();});
+})(window);
+
+</script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101723">
+  <meta name="referrer" content="no-referrer">
+  
+  <title>Corruption Check · Civic Integrity Review · BTW</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4NCjxwYXRoIGQ9Ik0yMiAxOS4yNzI3QzIyIDIwLjc3OSAyMC43NzkgMjIgMTkuMjcyNyAyMkgxNC43MjczQzEzLjIyMSAyMiAxMiAyMC43NzkgMTIgMTkuMjcyN1YxMkgxOS4yNzI3QzIwLjc3OSAxMiAyMiAxMy4yMjEgMjIgMTQuNzI3M1YxOS4yNzI3WiIgZmlsbD0iIzY4QzRGRiIvPg0KPHBhdGggZD0iTTIwIDJDMjEuMTA0NiAyIDIyIDIuODk1NDMgMjIgNFY3QzIyIDguMTA0NTcgMjEuMTA0NiA5IDIwIDlIMTdDMTUuODk1NCA5IDE1IDguMTA0NTcgMTUgN1Y0QzE1IDIuODk1NDMgMTUuODk1NCAyIDE3IDJIMjBaIiBmaWxsPSIjMEM3OUQ4Ii8+DQo8cGF0aCBkPSJNNyAxNUM4LjEwNDU3IDE1IDkgMTUuODk1NCA5IDE3VjIwQzkgMjEuMTA0NiA4LjEwNDU3IDIyIDcgMjJINEMyLjg5NTQzIDIyIDIgMjEuMTA0NiAyIDIwVjE3QzIgMTUuODk1NCAyLjg5NTQzIDE1IDQgMTVIN1oiIGZpbGw9IiMwQzc5RDgiLz4NCjxwYXRoIGQ9Ik0xMiAxMkg0LjcyNzI3QzMuMjIxMDQgMTIgMiAxMC43NzkgMiA5LjI3MjczVjQuNzI3MjdDMiAzLjIyMTA0IDMuMjIxMDQgMiA0LjcyNzI3IDJIOS4yNzI3M0MxMC43NzkgMiAxMiAzLjIyMTA0IDEyIDQuNzI3MjdWMTJaIiBmaWxsPSIjMkU5RUZGIi8+DQo8L3N2Zz4NCg==">
+  <style nonce="__MOZCORP_NONCE__">:root{color-scheme:dark;--bg:#090e15;--panel:#111b28;--line:#334459;--ink:#e8eef7;--muted:#b0bfd1;--gold:#ffdd85;--cyan:#90e9ed;--rose:#ffb3c1;--purple:#dbb9ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:1rem/1.55 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,textarea,select{font:inherit}button,a,input,textarea,select,summary{outline-offset:4px}button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid var(--gold)}a{color:var(--cyan);text-underline-offset:3px}button,.file-button{border:1px solid #51667f;background:#1b2b3e;border-radius:8px;color:var(--ink);min-height:44px;padding:10px 14px;font-size:.875rem;font-weight:750;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;line-height:1.4}button:hover:not(:disabled),.file-button:hover{background:#2a3d53;border-color:var(--cyan)}button:disabled{opacity:.42;cursor:not-allowed}button.primary{color:#211703;background:var(--gold);border-color:var(--gold)}button.primary:hover:not(:disabled){background:#ffebb2}.full{width:100%}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}input:not([type=file]),textarea,select{display:block;width:100%;padding:10px 12px;border:1px solid #50627a;border-radius:7px;background:#090f19;color:var(--ink);font-size:1rem;min-width:0}input[type=file]{width:100%;padding:10px;border:1px solid var(--line);border-radius:7px;background:#0b1320;font-size:.875rem}input::file-selector-button{padding:7px 9px;margin-right:10px;border:1px solid #526881;border-radius:5px;background:#21364b;color:var(--ink);cursor:pointer}textarea{resize:vertical;min-height:90px}label{display:block;margin:15px 0 6px;font-weight:650;font-size:.875rem}h1,h2,h3,p{margin-top:0}h1{font-size:1.3rem;line-height:1.3;letter-spacing:.035em;margin:0}h2{font-size:1.15rem;line-height:1.4;margin-bottom:10px}h3{font-size:1rem;margin-bottom:8px}p{margin-bottom:12px}strong{color:inherit}[hidden]{display:none!important}
+.top{background:#101723;border-bottom:1px solid #4f4266}.top-inner{max-width:1340px;margin:auto;padding:20px 28px;display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap}.brand{display:flex;align-items:center;gap:14px}.brand p{margin:3px 0 0;color:var(--muted);font-size:.875rem}.brand p span{color:var(--purple)}.mark{font:800 2.7rem/1 ui-monospace,monospace;color:var(--gold)}.top nav{display:flex;gap:18px;flex-wrap:wrap}.top nav a{font-size:.875rem;color:#d9e6f5}.shell{max-width:1340px;margin:auto;padding:22px 28px 42px}.intro{display:flex;align-items:center;justify-content:space-between;gap:15px;flex-wrap:wrap;margin-bottom:20px}.intro p{margin:0;font-size:1.1rem}.intro strong{color:var(--gold)}.local-label{color:var(--cyan);font:.8125rem ui-monospace,monospace;border:1px solid #376069;border-radius:5px;padding:6px 9px}.tabs{display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid #65547c}.tabs button{border:1px solid transparent;border-bottom:0;border-radius:9px 9px 0 0;background:transparent;font-size:1rem;padding:12px 18px;color:var(--muted)}.tabs button[aria-selected=true]{background:#261f33;color:#f4e6ff;border-color:#65547c}.status{padding:12px 15px;margin:14px 0 20px;border:1px solid #35515f;border-radius:8px;background:#101e29;color:#c2e7ee;font-size:.875rem;overflow-wrap:anywhere}.status[data-error=true],.error{border-color:#8a4150;background:#301823;color:#ffd0d7}.error{padding:12px;margin-top:14px;border:1px solid #8a4150;border-radius:7px;font-size:.875rem}
+.workspace{display:grid;grid-template-columns:330px minmax(0,1fr);gap:20px;align-items:start}.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;min-width:0}.section-label{color:var(--gold);font:700 .8125rem/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.035em;margin-bottom:8px}.muted{color:var(--muted)}.hint{color:var(--muted);font-size:.875rem;line-height:1.55;margin:8px 0 12px;overflow-wrap:anywhere}.mono{font:.875rem/1.65 ui-monospace,monospace;overflow-wrap:anywhere}.controls>button{margin-top:5px}.schema{margin-top:18px;padding:13px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}summary{cursor:pointer;font-size:.9375rem;font-weight:700;color:#e2d1f6}details p{font-size:.875rem;margin:12px 0}.download-heading{margin-top:20px}.download-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.download-grid button{padding:10px 7px}.empty{min-height:380px;display:grid;place-items:center;text-align:center;color:var(--muted)}.empty>div{max-width:470px}.empty h2{color:var(--ink);font-size:1.3rem}.empty-glyph{font:3rem ui-monospace,monospace;color:var(--gold);display:block;margin-bottom:15px}.result-banner{border:1px solid #6e5934;border-left:4px solid var(--gold);border-radius:10px;padding:17px 19px;background:#241f15}.result-banner h2{color:#ffe7ac}.result-banner p{margin:8px 0}.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:16px 0}.card{border:1px solid var(--line);background:var(--panel);border-radius:9px;padding:14px;min-width:0}.card strong{display:block;font:750 1.4rem/1.35 ui-monospace,monospace;color:var(--cyan);overflow-wrap:anywhere}.card span{display:block;font-size:.875rem;color:var(--muted);margin-top:6px}.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.grid2>*{min-width:0}.result-section{margin-top:16px}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:7px;margin-top:14px;max-height:490px}table{width:100%;border-collapse:collapse;font-size:.875rem}th,td{padding:10px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}th{background:#21314a;color:#e2d4f7;font-weight:650}td{background:#0c1622;overflow-wrap:anywhere}td.number{text-align:right;font-variant-numeric:tabular-nums}tbody tr:last-child td{border-bottom:0}.quality{display:grid;gap:9px;margin-top:15px}.quality-item{display:flex;justify-content:space-between;gap:12px;padding:12px;border:1px solid var(--line);border-radius:7px;background:#0d1623}.quality-item b{display:block;font-size:.9375rem}.quality-item p{font-size:.875rem;color:var(--muted);margin:6px 0 0}.tag{flex:none;align-self:flex-start;border-radius:5px;border:1px solid #4b6079;background:#1b2c40;color:#cee4f9;font:.75rem/1.4 ui-monospace,monospace;padding:4px 6px}.tag.medium,.tag.missing{color:var(--gold);background:#332915;border-color:#756239}.tag.high{color:var(--rose);background:#351c29;border-color:#855264}.tag.present{color:var(--cyan);background:#122d32;border-color:#3c6870}
+.lead-layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(290px,1fr);gap:20px;align-items:start}.lead-sidebar{display:grid;gap:16px}.heading-row{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}.heading-row h2,.heading-row h3{margin:0}.heading-row+p{margin-top:12px}.sources-heading{margin-top:25px;padding-top:20px;border-top:1px solid var(--line)}.source-list,.evidence-list{display:grid;gap:12px;margin-top:13px}.source-card{padding:15px;border:1px solid #47617b;border-left:3px solid var(--cyan);border-radius:8px;background:#0b1522;min-width:0}.source-card[data-relation=challenges]{border-left-color:var(--rose)}.source-card h3{font-size:1rem;overflow-wrap:anywhere}.source-meta{display:flex;gap:7px;flex-wrap:wrap;color:var(--muted);font-size:.8125rem;margin:8px 0}.source-card p{font-size:.875rem;overflow-wrap:anywhere;margin:8px 0}.source-card pre{font-family:inherit;font-size:1rem;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0 0;max-height:300px;overflow:auto;color:#dbe5f1}.source-card .actions button{min-height:36px;font-size:.875rem;padding:7px 10px}.source-card a{font-size:.875rem;overflow-wrap:anywhere}.source-form{margin-top:18px;padding:17px;border:1px solid #4d485f;border-radius:9px;background:#171a2a}.source-fields{padding-top:3px}.source-fields .grid2 label{min-height:1.6em}.notice{color:#ffe3a4;background:#2d2415;border:1px solid #726039;border-radius:7px;padding:12px;font-size:.875rem;margin:16px 0}.savebar{padding-top:18px;margin-top:20px;border-top:1px solid var(--line)}.savebar p{font-size:.875rem;color:var(--muted)}.file-button{position:relative;margin:0}.file-button input{position:absolute;width:1px;height:1px;overflow:hidden;opacity:0}.file-button:focus-within{outline:3px solid var(--gold);outline-offset:4px}.gate{margin-top:24px;background:#101824}.gate ol{padding-left:22px;color:var(--muted);font-size:.9375rem}.gate li{margin:9px 0}footer{color:var(--muted);font-size:.875rem;margin-top:22px;max-width:1030px;line-height:1.65}
+@media(max-width:1050px){.workspace{grid-template-columns:300px minmax(0,1fr)}.results .grid2{grid-template-columns:1fr}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.lead-layout{grid-template-columns:1fr}.lead-sidebar{grid-template-columns:1fr 1fr}}
+@media(max-width:750px){.workspace{grid-template-columns:1fr}.lead-sidebar{grid-template-columns:1fr}.shell{padding:18px 14px 32px}.top-inner{padding:18px 14px}.empty{min-height:240px}.panel{padding:16px}.intro p{font-size:1rem}.tabs button{flex:1;padding:12px 10px}.top nav{gap:15px}}
+@media(max-width:460px){.grid2{grid-template-columns:1fr}.source-fields .grid2{gap:0}.heading-row .tag{max-width:100%;overflow-wrap:anywhere}.top nav a{font-size:.875rem}h1{font-size:1.1rem}.local-label{display:none}.cards{gap:8px}.card{padding:12px}.download-grid{grid-template-columns:1fr 1fr}.quality-item{flex-wrap:wrap}}
+</style>
+</head>
+<body>
+  <header class="top"><div class="top-inner"><div class="brand"><span class="mark" aria-hidden="true">⁝</span><div><h1>CORRUPTION CHECK</h1><p>Civic Integrity Review <span>· BTW v11</span></p></div></div><nav aria-label="World navigation"><a href="#" data-moz-station="machine">World</a><a href="#" data-moz-station="machine" data-moz-anchor="newsGrabber">News Grabber</a><a href="#" data-moz-station="swordfish">Swordfish</a></nav></div></header>
+  <main class="shell">
+    <div class="intro"><p>Trace a claim. Preserve the sources. Keep <strong>UNKNOWN</strong> available.</p><span class="local-label">LOCAL REVIEW</span></div>
+    <div class="tabs" role="tablist" aria-label="Review workspace"><button id="csvTab" type="button" role="tab" aria-selected="true" aria-controls="csvPanel" tabindex="0">Case records CSV</button><button id="leadTab" type="button" role="tab" aria-selected="false" aria-controls="leadPanel" tabindex="-1">Source review</button></div>
+    <div id="workspaceStatus" class="status" role="status">Load case records or start a source review. Data stays in this tab; download your work before leaving.</div>
+    <section id="csvPanel" role="tabpanel" aria-labelledby="csvTab">
+      <div class="workspace">
+        <aside class="panel controls" aria-label="Data controls">
+          <div class="section-label">01 / SOURCE INTAKE</div><h2>Load a review</h2><p class="muted">Import the case CSV and, optionally, the evidence ledger from Civic Integrity Review.</p>
+          <label for="casesFile">Case records CSV</label><input id="casesFile" type="file" accept=".csv,text/csv"><p class="hint">Up to 10 MB and 50,000 records per file.</p>
+          <label for="evidenceFile">Evidence ledger CSV <span class="muted">(optional)</span></label><input id="evidenceFile" type="file" accept=".csv,text/csv"><p class="hint">Use record IDs from the index to link sources to cases. Existing short IDs work only when unambiguous.</p>
+          <button id="analyzeButton" class="primary full" type="button">Analyze local data</button>
+          <div id="errorBox" class="error" role="alert" hidden></div>
+          <details class="schema"><summary>CSV format and templates</summary><p>The original 11 case columns are preserved. <strong>Convicted, Exonerated, and Date of Release contain four-digit years.</strong> Missing optional fields stay unknown.</p><p id="caseColumns" class="mono"></p><div class="actions"><button id="downloadCasesTemplate" type="button">Case template</button><button id="downloadEvidence" type="button">Evidence template</button></div></details>
+          <h3 class="download-heading">Download this analysis</h3><div class="download-grid" aria-label="Analysis downloads"><button id="downloadIndex" type="button" disabled>Record index</button><button id="downloadQueue" type="button" disabled>Full review queue</button><button id="downloadQuality" type="button" disabled>Data quality</button><button id="downloadQuarantine" type="button" disabled>Quarantined rows</button><button id="downloadDuplicates" type="button" disabled>Duplicate rows</button><button id="downloadAudit" type="button" disabled>Evidence audit</button></div>
+          <p class="hint">Exports preserve source values. Spreadsheet formula prefixes are escaped for safe CSV opening.</p>
+        </aside>
+        <div class="results">
+          <div id="emptyState" class="panel empty"><div><span class="empty-glyph" aria-hidden="true">⁝</span><h2>Start with the original records.</h2><p>See descriptive counts, missing data, duplicate rows, and sources that need checking.</p><p class="hint">A source record is a lead. It does not establish corruption.</p></div></div>
+          <div id="resultState" hidden>
+            <div class="result-banner"><span class="section-label">FINDING / NOT ASSESSABLE</span><h2>Insufficient evidence to determine corruption</h2><p id="resultMessage"></p><p id="sourceFileLabel" class="hint"></p></div>
+            <div id="metrics" class="cards"></div>
+            <div class="grid2"><section class="panel"><h2>Convicted-offense categories</h2><p class="hint">Categories of conviction in source records.</p><div id="crimeTable"></div><p id="crimeScope" class="hint"></p></section><section class="panel"><h2>Recorded jurisdictions</h2><p class="hint">Descriptive research leads, not corruption rankings or rates.</p><div id="jurisdictionTable"></div><p id="jurisdictionScope" class="hint"></p></section></div>
+            <section class="panel result-section"><h2>Data-quality review</h2><div id="qualityList" class="quality"></div></section>
+            <section class="panel result-section"><h2>Evidence linkage</h2><p id="evidenceSummary" class="muted"></p><p class="hint">Linked means the source note matches a case ID. Imported verification labels are supplied by the file and remain unadjudicated.</p><div id="evidenceList" class="evidence-list"></div></section>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section id="leadPanel" role="tabpanel" aria-labelledby="leadTab" hidden>
+      <div class="lead-layout">
+        <section class="panel notebook">
+          <div class="section-label">02 / SOURCE REVIEW</div><div class="heading-row"><h2>One claim at a time</h2><span id="leadOrigin" class="tag">MANUAL NOTEBOOK</span></div>
+          <p class="muted">A selected headline or Swordfish question arrives here as an unverified lead. Add original records and your observations.</p>
+          <label for="leadTitle">Review title</label><input id="leadTitle" type="text" maxlength="500" placeholder="A short name for this question">
+          <label for="leadQuestion">What specific claim needs checking?</label><textarea id="leadQuestion" maxlength="2000" rows="3" placeholder="What happened, when, and which source could confirm or refute it?"></textarea>
+          <label for="leadAnswer">Your working answer</label><textarea id="leadAnswer" maxlength="6000" rows="3" placeholder="Your interpretation, alternatives, and what remains unknown"></textarea>
+          <div class="heading-row sources-heading"><h3>Sources and counterevidence</h3><span id="sourceCount" class="hint">0 / 100</span></div><div id="leadSources" class="source-list"></div>
+          <details id="sourceForm" class="source-form" open><summary id="sourceFormLabel">Add a source note</summary><div class="source-fields"><label for="sourceTitle">Source title or observation label</label><input id="sourceTitle" maxlength="500" placeholder="Original document, article, or direct observation"><label for="sourceURL">Source URL <span class="muted">(optional)</span></label><input id="sourceURL" type="url" maxlength="2000" placeholder="https://…"><div class="grid2"><div><label for="sourceKind">Source type <span class="muted">(your label)</span></label><select id="sourceKind"><option value="secondary">Reporting / secondary source</option><option value="primary">Original record / primary source</option><option value="observation">Direct observation</option></select></div><div><label for="sourceRelation">Relation to the working answer</label><select id="sourceRelation"><option value="context">Context / uncertain</option><option value="supports">Supports, in my reading</option><option value="challenges">Challenges, in my reading</option></select></div></div><div class="grid2"><div><label for="sourceDate">Source date <span class="muted">(optional)</span></label><input id="sourceDate" maxlength="200" placeholder="Date shown by the source"></div><div><label for="sourceGroup">Shared origin <span class="muted">(optional)</span></label><input id="sourceGroup" maxlength="200" placeholder="Same report / press release / record"></div></div><label for="sourceNote">Exact excerpt or observation, with page / section</label><textarea id="sourceNote" maxlength="6000" rows="4" placeholder="Keep the source’s words and your interpretation distinct."></textarea><p class="hint">Repeated versions of the same report do not establish independent corroboration.</p><div class="actions"><button id="addSource" type="button" class="primary">Keep source note</button><button id="cancelSource" type="button" hidden>Cancel edit</button></div></div></details>
+          <div class="savebar"><p>This notebook stays in this tab. Save a review file to keep it.</p><div class="actions"><button id="saveLead" class="primary" type="button">Save review .JSON</button><label class="file-button" for="loadLead">Open review .JSON<input id="loadLead" type="file" accept=".json,application/json"></label></div></div>
+        </section>
+        <aside class="lead-sidebar"><section class="panel"><div class="section-label">REVIEW CHECKLIST</div><h2 id="leadVerdict">Review remains open</h2><p class="muted">These checks describe your notes. They do not verify facts or decide whether corruption occurred.</p><div id="leadChecks" class="quality"></div><p id="leadConflict" class="notice"></p><button id="checkLead" class="full" type="button">Check review gaps</button></section><section class="panel"><h3>Continue the source trail</h3><p class="muted">Use the original article and case records to look for exact findings, dates, and competing explanations.</p><p class="hint">This page does not fetch sources automatically. Source links open only when you choose them.</p></section></aside>
+      </div>
+    </section>
+    <details class="panel gate"><summary>Evidence gate · before drawing a public conclusion</summary><ol><li>Verify the source record and preserve the original file.</li><li>Use a primary record to document or refute a specific claim.</li><li>Link an official or agency only with authoritative, time-bounded identifiers.</li><li>Confirm a repeated pattern with independent evidence and a valid denominator.</li><li>Require two-person and appropriate legal/policy review before any public finding.</li></ol></details>
+    <footer>Source-record counts may reflect population, charging volume, reporting, recordkeeping, group cases, advocacy, and review capacity. They do not establish intent, causation, or institutional responsibility. Review data is kept out of the story generator and cloud savepoints.</footer>
+  </main>
+  <script nonce="__MOZCORP_NONCE__" data-moz-source="integrity-core.js">
+(function (root) {
+  'use strict';
+  const CASE_FIELDS = ['Name','State','County','Convicted','Exonerated','Crime','Sentence','Term of Years','Years lost','Year of recantation','Date of Release'];
+  const REQUIRED_VALUES = ['Name','State','Convicted','Exonerated','Crime','Sentence','Years lost','Date of Release'];
+  const EVIDENCE_FIELDS = ['record_id','claim_id','evidence_id','source_url','source_type','source_title','source_date','document_page_or_section','exact_finding_quote','independence_group','supports_or_refutes','primary_source','verification_status','finding_status','official_misconduct','actor_name','actor_type','agency','misconduct_type','intentionality','accountability_indicator','reviewer','review_date','notes'];
+  const FILE_LIMIT = 10 * 1024 * 1024, ROW_LIMIT = 50000, REVIEW_FORMAT = 'BTW-INTEGRITY-REVIEW-1';
+  const clean = value => String(value ?? '').replace(/\s+/g, ' ').trim();
+  const normal = value => clean(value).toLowerCase();
+  const headerKey = value => normal(value).replace(/[^a-z0-9]/g, '');
+  const text = (value, limit = 3000) => {
+    if (typeof value !== 'string') return '';
+    if (value.length > limit) throw new Error('A text field is too long for this review.');
+    return value;
+  };
+  function sourceUrl(value) {
+    const raw = text(value, 2000).trim(); if (!raw) return '';
+    if (/[\u0000-\u0020\u007f]/.test(raw)) throw new Error('A source URL contains spaces or control characters.');
+    let url; try { url = new URL(raw); } catch { throw new Error('Use a complete http:// or https:// source URL.'); }
+    if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password) throw new Error('Use an HTTP or HTTPS source URL without embedded login details.');
+    return raw;
+  }
+  function parseCsv(input) {
+    if (typeof input !== 'string' || new TextEncoder().encode(input).length > FILE_LIMIT) throw new Error('Choose a CSV no larger than 10 MB.');
+    const inputText = input.replace(/^\uFEFF/, '');
+    const rows = [], lines = []; let row = [], cell = '', mode = 'start', line = 1, rowLine = 1, touched = false;
+    const finishCell = () => { row.push(cell); cell = ''; mode = 'start'; };
+    const finishRow = () => { finishCell(); if (touched || row.length > 1 || row.some(v => v !== '')) { rows.push(row); lines.push(rowLine); } row = []; touched = false; if (rows.length > ROW_LIMIT + 1) throw new Error('Split this CSV into files of at most 50,000 records.'); };
+    for (let i = 0; i < inputText.length; i++) {
+      const ch = inputText[i], next = inputText[i + 1];
+      if (mode === 'quoted') {
+        if (ch === '"') { if (next === '"') { cell += '"'; i++; } else mode = 'closed'; }
+        else { cell += ch; if (ch === '\n' || ch === '\r' && next !== '\n') line++; }
+        continue;
+      }
+      if (ch === ',') { touched = true; finishCell(); continue; }
+      if (ch === '\n' || ch === '\r') { finishRow(); if (ch === '\r' && next === '\n') i++; line++; rowLine = line; continue; }
+      if (mode === 'closed') throw new Error('Unexpected text after a closing quote on line ' + line + '.');
+      if (ch === '"') { if (mode !== 'start') throw new Error('Unexpected quote in an unquoted field on line ' + line + '.'); mode = 'quoted'; touched = true; }
+      else { cell += ch; mode = 'plain'; touched = true; }
+    }
+    if (mode === 'quoted') throw new Error('The CSV contains an unmatched quote beginning at or after line ' + rowLine + '.');
+    if (touched || row.length || cell) finishRow();
+    if (!rows.length) throw new Error('The CSV is empty.');
+    const headers = rows.shift().map(clean); lines.shift();
+    if (headers.some(h => !headerKey(h))) throw new Error('The CSV contains an empty column header.');
+    if (new Set(headers.map(headerKey)).size !== headers.length) throw new Error('The CSV contains duplicate column headers.');
+    const records = rows.map((values, i) => {
+      if (values.length !== headers.length) throw new Error('The record beginning on line ' + lines[i] + ' has ' + values.length + ' fields; expected ' + headers.length + '.');
+      return Object.fromEntries(headers.map((h, j) => [h, values[j]]));
+    });
+    return { headers, rows: records, lines };
+  }
+  function mapFields(parsed, fields, label) {
+    const lookup = Object.fromEntries(parsed.headers.map(h => [headerKey(h), h]));
+    const missing = fields.filter(f => !Object.hasOwn(lookup, headerKey(f)));
+    if (missing.length) throw new Error(label + ' is missing column(s): ' + missing.join(', ') + '.');
+    return parsed.rows.map(row => Object.fromEntries(fields.map(f => [f, row[lookup[headerKey(f)]] ?? ''])));
+  }
+  function parseYear(value) { const t = clean(value), n = /^\d{4}$/.test(t) ? Number(t) : null; return n !== null && n >= 1700 && n <= new Date().getFullYear() + 1 ? n : null; }
+  function parseNumber(value) { const t = clean(value); if (!/^[+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(t)) return null; const n = Number(t.replaceAll(',', '')); return Number.isFinite(n) ? n : null; }
+  function legacyRecordId(row) { const t = CASE_FIELDS.map(f => normal(row[f])).join('\u001f'); let h = 0x811c9dc5; for (let i=0;i<t.length;i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193); } return 'record-' + (h >>> 0).toString(16).padStart(8, '0'); }
+  async function recordId(fingerprint) {
+    if (!root.crypto?.subtle) throw new Error('Secure record identifiers are unavailable. Open the HTTPS app in a current browser and retry.');
+    const digest = await root.crypto.subtle.digest('SHA-256', new TextEncoder().encode(fingerprint));
+    return 'record-' + [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  function aggregate(records, key, getValue) {
+    const groups = new Map();
+    for (const r of records) { const value = getValue(r); const g = groups.get(value) || { [key]: value, records: 0, yearsLost: 0 }; g.records++; g.yearsLost += r.yearsLost; groups.set(value, g); }
+    return [...groups.values()].map(g => ({ ...g, share: records.length ? (100 * g.records / records.length).toFixed(1) + '%' : '0.0%' })).sort((a,b) => b.records-a.records || a[key].localeCompare(b[key]));
+  }
+  function validateEvidence(parsed, records, quarantined) {
+    if (!parsed) return [];
+    const rows = mapFields(parsed, EVIDENCE_FIELDS, 'The evidence ledger'), accepted = new Map(), aliases = new Map();
+    for (const r of [...records, ...quarantined]) { const a = aliases.get(r.legacyRecordId) || []; a.push(r); aliases.set(r.legacyRecordId, a); }
+    for (const r of records) accepted.set(r.recordId, r);
+    const frequencies = new Map(); for (const r of rows) { const id = clean(r.evidence_id); if (id) frequencies.set(id, (frequencies.get(id) || 0) + 1); }
+    return rows.map((raw, i) => {
+      const problems = [], id = clean(raw.record_id), evidenceId = clean(raw.evidence_id);
+      let linked = accepted.get(id), matchedLegacy = false;
+      if (!linked && aliases.has(id)) {
+        const matches = aliases.get(id);
+        if (matches.length > 1) problems.push('Ambiguous legacy record ID; use the full record_id from the new record index');
+        else if (accepted.has(matches[0].recordId)) { linked = matches[0]; matchedLegacy = true; }
+      }
+      if (!linked && !problems.length) problems.push('Unknown or quarantined case record_id');
+      if (!clean(raw.claim_id)) problems.push('Missing claim_id');
+      if (!evidenceId) problems.push('Missing evidence_id');
+      else if (frequencies.get(evidenceId) > 1) problems.push('Duplicate evidence_id');
+      if (!clean(raw.source_title) && !clean(raw.source_url)) problems.push('Missing source reference');
+      try { sourceUrl(raw.source_url); } catch (e) { problems.push(e.message); }
+      return { ...raw, sourceLine: parsed.lines[i], linkedRecordId: linked?.recordId || '', matchedLegacy, problems, linkageStatus: problems.length ? 'NEEDS_REVIEW' : 'LINKED_NOT_VERIFIED' };
+    });
+  }
+  async function analyse(caseParsed, evidenceParsed = null) {
+    const rawRows = mapFields(caseParsed, CASE_FIELDS, 'The case CSV');
+    const records = [], quarantined = [], duplicates = [], seen = new Map(), missingCounts = {}, issues = [], unique = [];
+    let unknownRecant = 0, releaseAfter = 0, recantBefore = 0, recantAfter = 0;
+    for (let i = 0; i < rawRows.length; i++) {
+      const raw = rawRows[i], fingerprint = JSON.stringify(CASE_FIELDS.map(f => raw[f]));
+      if (seen.has(fingerprint)) { duplicates.push({ ...raw, sourceLine: caseParsed.lines[i], duplicateOfLine: seen.get(fingerprint) }); continue; }
+      seen.set(fingerprint, caseParsed.lines[i]);
+      const source = { ...raw, sourceRecord: i + 1, sourceLine: caseParsed.lines[i], legacyRecordId: legacyRecordId(raw), fingerprint };
+      unique.push(source);
+    }
+    for (let start = 0; start < unique.length; start += 128) {
+      await Promise.all(unique.slice(start, start + 128).map(async r => { r.recordId = await recordId(r.fingerprint); delete r.fingerprint; }));
+    }
+    for (const source of unique) {
+      for (const f of CASE_FIELDS) if (!clean(source[f])) missingCounts[f] = (missingCounts[f] || 0) + 1;
+      const conviction = parseYear(source.Convicted), exoneration = parseYear(source.Exonerated), release = parseYear(source['Date of Release']);
+      const yearsLost = parseNumber(source['Years lost']), recantation = parseYear(source['Year of recantation']), term = parseNumber(source['Term of Years']);
+      const hasTerm = Boolean(clean(source['Term of Years'])), termExpected = normal(source.Sentence) === 'term of years', reasons = [];
+      const missing = REQUIRED_VALUES.filter(f => !clean(source[f])); if (missing.length) reasons.push('Missing required values: ' + missing.join(', '));
+      if (conviction === null) reasons.push('Invalid conviction year'); if (exoneration === null) reasons.push('Invalid exoneration year');
+      if (release === null) reasons.push('Invalid release year; Date of Release must contain a four-digit year');
+      if (yearsLost === null || yearsLost < 0) reasons.push('Invalid years-lost value; use a nonnegative decimal');
+      if (conviction !== null && exoneration !== null && exoneration < conviction) reasons.push('Exoneration year precedes conviction year');
+      if (hasTerm !== termExpected) reasons.push('Sentence and term-of-years fields conflict');
+      if (hasTerm && (term === null || term <= 0)) reasons.push('Term of Years must be a positive decimal');
+      if (clean(source['Year of recantation']) && recantation === null) unknownRecant++;
+      if (release !== null && exoneration !== null && release > exoneration) releaseAfter++;
+      if (recantation !== null && conviction !== null && recantation < conviction) recantBefore++;
+      if (recantation !== null && exoneration !== null && recantation > exoneration) recantAfter++;
+      const record = { ...source, conviction, exoneration, release, yearsLost, recantation };
+      if (reasons.length) quarantined.push({ ...record, reason: reasons.join('; ') }); else records.push(record);
+    }
+    const issue = (label, count, severity, detail) => { if (count) issues.push({ label, count, severity, detail }); };
+    issue('Exact duplicate source records', duplicates.length, 'medium', 'Excluded from totals. The duplicates download retains each original starting line.');
+    issue('Quarantined source records', quarantined.length, 'high', 'Excluded from totals. Download the quarantined rows to see original values and rejection reasons.');
+    issue('Unknown recantation values', unknownRecant, 'low', 'Retained as unknown; not converted to zero.');
+    issue('Release after exoneration', releaseAfter, 'low', 'Review the recorded timeline against the original case.');
+    issue('Recantation before conviction', recantBefore, 'low', 'Review the recorded timeline against the original case.');
+    issue('Recantation after exoneration', recantAfter, 'low', 'Review the recorded timeline against the original case.');
+    for (const [f,n] of Object.entries(missingCounts).sort((a,b) => a[0].localeCompare(b[0]))) issue('Missing ' + f, n, f === 'County' ? 'medium' : 'low', 'Original values are kept. Missing values are not imputed.');
+    const evidence = validateEvidence(evidenceParsed, records, quarantined);
+    issue('Evidence rows needing linkage or data review', evidence.filter(e => e.problems.length).length, 'medium', 'Download the evidence audit for row-level reasons. Imported verification labels are not verified by this app.');
+    const losses = records.map(r => r.yearsLost).sort((a,b) => a-b), total = losses.reduce((a,b) => a+b, 0), middle = Math.floor(losses.length/2);
+    return { rawRows: rawRows.length, records, quarantined, duplicates, issues, evidence, evidenceLoaded: evidenceParsed !== null, total, average: losses.length ? total/losses.length : null, median: losses.length ? losses.length % 2 ? losses[middle] : (losses[middle-1] + losses[middle])/2 : null,
+      crime: aggregate(records, 'crime', r => clean(r.Crime)), jurisdiction: aggregate(records, 'jurisdiction', r => (clean(r.County) || 'County not recorded') + ', ' + clean(r.State)), finding: 'NOT_ASSESSABLE' };
+  }
+  function safeCsv(value) { const t = String(value ?? ''); return /^[\s\u0000-\u001f]*[=+\-@]/.test(t) || /^[\t\r\n]/.test(t) ? "'" + t : t; }
+  function csvString(headers, rows) { const quote = v => '"' + safeCsv(v).replaceAll('"', '""') + '"'; return [headers.map(quote).join(','), ...rows.map(row => headers.map(h => quote(row[h] ?? '')).join(','))].join('\r\n'); }
+  function recordIndex(result) { return result.records.map(r => ({ record_id: r.recordId, legacy_record_id: r.legacyRecordId, ...Object.fromEntries(CASE_FIELDS.map(f => [f, r[f]])), source_record: r.sourceRecord, source_start_line: r.sourceLine, evidence_tier: 'T0 — descriptive source record', corruption_status: 'NOT_ASSESSABLE' })); }
+  function reviewQueue(result) { return result.jurisdiction.map(r => ({ jurisdiction: r.jurisdiction, record_count: r.records, share_of_source_records_pct: r.share, reported_years_lost: r.yearsLost, evidence_tier: 'T0 — descriptive source record', review_status: 'Descriptive lead only — collect evidence and denominator data', finding: 'NOT_ASSESSABLE' })); }
+  function normaliseNotebook(value = {}) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('This review notebook could not be read.');
+    if (value.sources !== undefined && (!Array.isArray(value.sources) || value.sources.length > 100)) throw new Error('A review can hold up to 100 source notes.');
+    return { title: text(value.title, 500), question: text(value.question, 2000), answer: text(value.answer, 6000), origin: ['news','swordfish','manual'].includes(value.origin) ? value.origin : 'manual', sources: (value.sources || []).map((s, i) => {
+      if (!s || typeof s !== 'object') throw new Error('A source note could not be read.');
+      return { id: 'source-' + (i+1), title: text(s.title, 500), url: sourceUrl(s.url), publishedAt: text(s.publishedAt, 200), note: text(s.note, 6000), kind: ['primary','secondary','observation'].includes(s.kind) ? s.kind : 'secondary', relation: ['supports','challenges','context'].includes(s.relation) ? s.relation : 'context', group: text(s.group, 200) };
+    }) };
+  }
+  function fromHandoff(raw) {
+    if (typeof raw !== 'string' || raw.length > 700000) throw new Error('This source handoff is too large.');
+    let value; try { value = JSON.parse(raw); } catch { throw new Error('The source handoff is incomplete.'); }
+    if (value?.format !== 'BTW-INTEGRITY-HANDOFF-1') throw new Error('This is not a BTW source handoff.');
+    return normaliseNotebook(value.notebook);
+  }
+  function restoreNotebook(raw) {
+    if (typeof raw !== 'string' || new TextEncoder().encode(raw).length > 2*1024*1024) throw new Error('Choose a review notebook smaller than 2 MB.');
+    let value; try { value = JSON.parse(raw); } catch { throw new Error('The review file is not complete JSON.'); }
+    if (value?.format !== REVIEW_FORMAT) throw new Error('Choose a saved Corruption Check review notebook.');
+    return normaliseNotebook(value.notebook);
+  }
+  function notebookSnapshot(value) { return { format: REVIEW_FORMAT, savedAt: new Date().toISOString(), status: 'UNADJUDICATED', scope: 'User-entered source notes; no automatic finding of corruption.', notebook: normaliseNotebook(value) }; }
+  function notebookChecks(value) {
+    const n = normaliseNotebook(value), primary = n.sources.filter(s => s.kind === 'primary');
+    return [
+      { label: 'A specific, checkable question', present: Boolean(clean(n.question)), detail: 'Keep the question narrower than the headline or allegation.' },
+      { label: 'Original source reference', present: primary.some(s => clean(s.url) || clean(s.title)), detail: 'Source type is your classification. Open and check the original record yourself.' },
+      { label: 'An excerpt or direct observation', present: n.sources.some(s => clean(s.note)), detail: 'Record the document page or section with the exact wording when available.' },
+      { label: 'Counterevidence or an alternative explanation', present: n.sources.some(s => s.relation === 'challenges'), detail: 'A matching source count cannot resolve a conflict. Preserve evidence that challenges the working answer.' }
+    ];
+  }
+  root.CivicIntegrity = Object.freeze({ CASE_FIELDS, EVIDENCE_FIELDS, FILE_LIMIT, ROW_LIMIT, REVIEW_FORMAT, clean, headerKey, sourceUrl, parseCsv, parseYear, parseNumber, legacyRecordId, analyse, csvString, recordIndex, reviewQueue, normaliseNotebook, fromHandoff, restoreNotebook, notebookSnapshot, notebookChecks });
+})(globalThis);
+
+</script>
+  <script nonce="__MOZCORP_NONCE__" data-moz-source="integrity.js">
+(function () {
+  'use strict';
+  const C = window.CivicIntegrity, $ = id => document.getElementById(id);
+  const downloads = ['downloadIndex','downloadQueue','downloadQuality','downloadQuarantine','downloadDuplicates','downloadAudit'];
+  let latest = null, analysisRevision = 0, notebookRevision = 0, notebookLoadRevision = 0, book = C.normaliseNotebook(), editingSource = null;
+  const status = (message, error = false) => { $('workspaceStatus').textContent = message; $('workspaceStatus').dataset.error = String(error); };
+  function el(tag, value, className) { const e = document.createElement(tag); if (value !== undefined) e.textContent = value; if (className) e.className = className; return e; }
+  function number(value, digits = 0) { return value === null || value === undefined ? '—' : Number(value).toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: digits }); }
+  function download(name, value, type = 'text/csv;charset=utf-8') {
+    const url = URL.createObjectURL(new Blob([value], { type })), a = el('a'); a.href = url; a.download = name;
+    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  function setTab(name, focus = false) {
+    for (const key of ['csv','lead']) { const active = key === name; $(key + 'Tab').setAttribute('aria-selected', String(active)); $(key + 'Tab').tabIndex = active ? 0 : -1; $(key + 'Panel').hidden = !active; if (active && focus) $(key + 'Tab').focus(); }
+  }
+  for (const name of ['csv','lead']) {
+    $(name + 'Tab').addEventListener('click', () => setTab(name));
+    $(name + 'Tab').addEventListener('keydown', e => { if (['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) { e.preventDefault(); setTab(e.key === 'Home' ? 'csv' : e.key === 'End' ? 'lead' : name === 'csv' ? 'lead' : 'csv', true); } });
+  }
+  function table(target, columns, rows) {
+    const box = $(target); box.replaceChildren(); if (!rows.length) { box.append(el('p', 'No accepted records in this analysis.', 'muted')); return; }
+    const wrap = el('div', undefined, 'table-wrap'), t = el('table'), head = el('thead'), tr = el('tr'), body = el('tbody');
+    for (const [key,label] of columns) { const th = el('th', label); th.scope = 'col'; tr.append(th); } head.append(tr);
+    for (const row of rows) { const r = el('tr'); for (const [key,,numeric] of columns) r.append(el('td', row[key], numeric ? 'number' : '')); body.append(r); }
+    t.append(head, body); wrap.append(t); box.append(wrap);
+  }
+  function qualityItem(label, detail, tag, kind) {
+    const item = el('div', undefined, 'quality-item'), content = el('div'); content.append(el('b', label), el('p', detail)); item.append(content, el('span', tag, 'tag ' + kind)); return item;
+  }
+  function clearAnalysis(message) {
+    analysisRevision++; latest = null; for (const id of downloads) $(id).disabled = true;
+    $('resultState').hidden = true; $('emptyState').hidden = false; $('errorBox').hidden = true;
+    $('analyzeButton').disabled = false; $('analyzeButton').textContent = 'Analyze local data';
+    if (message) status(message);
+  }
+  for (const id of ['casesFile','evidenceFile']) $(id).addEventListener('change', () => clearAnalysis('File selection changed. Analyze the selected files to create a fresh review.'));
+  function renderAnalysis(r, fileName, evidenceName) {
+    $('emptyState').hidden = true; $('resultState').hidden = false;
+    $('resultMessage').textContent = number(r.records.length) + ' accepted records from ' + number(r.rawRows) + ' source records. ' + number(r.duplicates.length) + ' exact duplicates excluded; ' + number(r.quarantined.length) + ' rows quarantined.';
+    $('sourceFileLabel').textContent = 'Case file: ' + fileName + (evidenceName ? ' · Evidence file: ' + evidenceName : ' · No evidence ledger loaded');
+    $('metrics').replaceChildren();
+    for (const [value,label] of [[number(r.records.length),'records analyzed'],[number(r.total,1),'reported years lost'],[number(r.average,2),'average years lost'],[number(r.median,2),'median years lost']]) { const card = el('div', undefined, 'card'); card.append(el('strong', value), el('span', label)); $('metrics').append(card); }
+    const displayRows = rows => rows.map(x => ({ ...x, records: number(x.records), yearsLost: number(x.yearsLost,1) }));
+    table('crimeTable', [['crime','Category'],['records','Records',true],['share','Share',true],['yearsLost','Years lost',true]], displayRows(r.crime.slice(0,8)));
+    table('jurisdictionTable', [['jurisdiction','Jurisdiction'],['records','Records',true],['share','Share',true],['yearsLost','Years lost',true]], displayRows(r.jurisdiction.slice(0,10)));
+    $('crimeScope').textContent = 'Showing ' + Math.min(8,r.crime.length) + ' of ' + r.crime.length + ' categories. The record index includes every accepted case.';
+    $('jurisdictionScope').textContent = 'Showing ' + Math.min(10,r.jurisdiction.length) + ' of ' + r.jurisdiction.length + ' jurisdictions. Full review queue exports all ' + r.jurisdiction.length + '.';
+    $('qualityList').replaceChildren();
+    if (!r.issues.length) $('qualityList').append(el('p', 'No data-quality exceptions found in the supported checks.', 'muted'));
+    for (const issue of r.issues) $('qualityList').append(qualityItem(issue.label + ': ' + number(issue.count), issue.detail, issue.severity.toUpperCase(), issue.severity));
+    const linked = r.evidence.filter(e => !e.problems.length).length;
+    $('evidenceSummary').textContent = r.evidenceLoaded ? r.evidence.length + ' ledger rows · ' + linked + ' linked · ' + (r.evidence.length-linked) + ' need review. All entries remain unadjudicated.' : 'No evidence ledger loaded. Case records alone remain descriptive context.';
+    $('evidenceList').replaceChildren();
+    for (const e of r.evidence.slice(0,10)) {
+      const card = el('article', undefined, 'source-card'); card.append(el('h3', e.source_title || e.evidence_id || 'Untitled evidence row'));
+      card.append(el('p', 'Evidence ID: ' + (e.evidence_id || 'missing') + ' · Source line: ' + e.sourceLine, 'hint'));
+      card.append(el('span', e.problems.length ? 'NEEDS REVIEW' : 'LINKED / NOT VERIFIED', 'tag ' + (e.problems.length ? 'medium' : '')));
+      card.append(el('p', e.problems.length ? e.problems.join('; ') : e.matchedLegacy ? 'Unambiguous legacy case ID linked to the new full record ID.' : 'Case ID found in the accepted record index.'));
+      card.append(el('p', 'Imported verification label: ' + (e.verification_status || 'not supplied') + ' · Imported finding label: ' + (e.finding_status || 'not supplied'), 'hint'));
+      try { const url = C.sourceUrl(e.source_url); if (url) { const a = el('a','Open source reference'); a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer'; card.append(a); } } catch { /* The audit already records the invalid URL. */ }
+      if (e.exact_finding_quote || e.notes) { const detail = el('details'); detail.append(el('summary','Read the stored excerpt and notes')); if (e.exact_finding_quote) detail.append(el('pre',e.exact_finding_quote)); if (e.notes) detail.append(el('pre',e.notes)); card.append(detail); }
+      $('evidenceList').append(card);
+    }
+    if (r.evidence.length > 10) $('evidenceList').append(el('p', 'Showing the first 10 ledger entries. Evidence audit exports all ' + r.evidence.length + '.', 'hint'));
+    for (const id of downloads) $(id).disabled = false;
+  }
+  $('analyzeButton').addEventListener('click', async () => {
+    clearAnalysis(); const run = analysisRevision, cases = $('casesFile').files[0], evidence = $('evidenceFile').files[0];
+    if (!cases) { $('errorBox').textContent = 'Choose a case-record CSV first.'; $('errorBox').hidden = false; status('Choose the source CSV to begin.', true); return; }
+    $('analyzeButton').disabled = true; $('analyzeButton').textContent = 'Analyzing…'; status('Reading the selected CSV files locally…');
+    try {
+      for (const f of [cases,evidence].filter(Boolean)) if (f.size > C.FILE_LIMIT) throw new Error(f.name + ' exceeds the 10 MB file limit.');
+      const [caseText,evidenceText] = await Promise.all([cases.text(), evidence ? evidence.text() : Promise.resolve(null)]);
+      const result = await C.analyse(C.parseCsv(caseText), evidenceText === null ? null : C.parseCsv(evidenceText));
+      if (run !== analysisRevision) return;
+      latest = result; renderAnalysis(result, cases.name, evidence?.name); status('Local analysis complete. Review the exceptions and source evidence; no corruption finding has been made.');
+    } catch (error) {
+      if (run !== analysisRevision) return;
+      latest = null; $('errorBox').textContent = error.message || 'The selected CSV could not be analyzed.'; $('errorBox').hidden = false;
+      status('Import failed. There is no active analysis or old export attached to these files.', true);
+    } finally { if (run === analysisRevision) { $('analyzeButton').disabled = false; $('analyzeButton').textContent = 'Analyze local data'; } }
+  });
+  $('caseColumns').textContent = C.CASE_FIELDS.join(' · ');
+  $('downloadCasesTemplate').addEventListener('click', () => download('case_records_template.csv', C.csvString(C.CASE_FIELDS, [])));
+  $('downloadEvidence').addEventListener('click', () => download('evidence_template.csv', C.csvString(C.EVIDENCE_FIELDS, [])));
+  $('downloadIndex').addEventListener('click', () => { if (latest) download('case_index.csv', C.csvString(['record_id','legacy_record_id',...C.CASE_FIELDS,'source_record','source_start_line','evidence_tier','corruption_status'], C.recordIndex(latest))); });
+  $('downloadQueue').addEventListener('click', () => { if (latest) download('jurisdiction_review_queue.csv', C.csvString(['jurisdiction','record_count','share_of_source_records_pct','reported_years_lost','evidence_tier','review_status','finding'], C.reviewQueue(latest))); });
+  $('downloadQuality').addEventListener('click', () => { if (latest) download('data_quality.csv', C.csvString(['issue','count','severity','detail'], latest.issues.map(i => ({ issue:i.label,count:i.count,severity:i.severity,detail:i.detail })))); });
+  $('downloadQuarantine').addEventListener('click', () => { if (latest) download('quarantined_rows.csv', C.csvString(['record_id',...C.CASE_FIELDS,'source_start_line','reason'], latest.quarantined.map(r => ({ ...r, record_id:r.recordId, source_start_line:r.sourceLine })))); });
+  $('downloadDuplicates').addEventListener('click', () => { if (latest) download('duplicate_rows.csv', C.csvString([...C.CASE_FIELDS,'source_start_line','duplicate_of_line'], latest.duplicates.map(r => ({ ...r, source_start_line:r.sourceLine, duplicate_of_line:r.duplicateOfLine })))); });
+  $('downloadAudit').addEventListener('click', () => { if (latest) download('evidence_audit.csv', C.csvString([...C.EVIDENCE_FIELDS,'source_start_line','linked_record_id','linkage_status','audit_notes'], latest.evidence.map(e => ({ ...e, source_start_line:e.sourceLine, linked_record_id:e.linkedRecordId, linkage_status:e.linkageStatus, audit_notes:e.problems.join('; ') })))); });
+
+  const leadFields = { title:'leadTitle', question:'leadQuestion', answer:'leadAnswer' };
+  const sourceFields = { title:'sourceTitle', url:'sourceURL', publishedAt:'sourceDate', note:'sourceNote', kind:'sourceKind', relation:'sourceRelation', group:'sourceGroup' };
+  const relationLabels = { context:'Context / uncertain', supports:'Supports, in your reading', challenges:'Challenges, in your reading' };
+  const kindLabels = { primary:'Original record / primary', secondary:'Reporting / secondary', observation:'Direct observation' };
+  for (const [key,id] of Object.entries(leadFields)) $(id).addEventListener('input', () => { book[key] = $(id).value; notebookRevision++; });
+  for (const id of Object.values(sourceFields)) $(id).addEventListener('input', () => { notebookRevision++; });
+  function renderChecks() {
+    $('leadChecks').replaceChildren();
+    for (const check of C.notebookChecks(book)) $('leadChecks').append(qualityItem(check.label, check.detail, check.present ? 'IN NOTES' : 'TO CHECK', check.present ? 'present' : 'missing'));
+    const challenge = book.sources.some(s => s.relation === 'challenges'), support = book.sources.some(s => s.relation === 'supports');
+    $('leadConflict').textContent = challenge && support ? 'Your notes contain support and counterevidence. Review the disagreement against the original records; counting sources does not settle it.' : 'Review remains open. Human source checking and a specific finding are still required, even when every checklist item is in your notes.';
+  }
+  function clearSourceForm() {
+    editingSource = null; for (const [key,id] of Object.entries(sourceFields)) $(id).value = key === 'kind' ? 'secondary' : key === 'relation' ? 'context' : '';
+    $('addSource').textContent = 'Keep source note'; $('sourceFormLabel').textContent = 'Add a source note'; $('cancelSource').hidden = true;
+  }
+  function renderSources() {
+    const list = $('leadSources'); list.replaceChildren(); $('sourceCount').textContent = book.sources.length + ' / 100';
+    if (!book.sources.length) list.append(el('p', 'No source notes yet. Keep links, quotations, observations, and counterevidence here.', 'muted'));
+    book.sources.forEach((s,index) => {
+      const card = el('article', undefined, 'source-card'); card.dataset.relation = s.relation; card.append(el('h3',s.title || 'Source note ' + (index+1)));
+      const meta = el('div', undefined, 'source-meta'); meta.append(el('span',kindLabels[s.kind]),el('span','· ' + relationLabels[s.relation])); card.append(meta);
+      if (s.publishedAt) card.append(el('p', 'Source date: ' + s.publishedAt, 'hint')); if (s.group) card.append(el('p', 'Shared origin: ' + s.group, 'hint'));
+      if (s.url) { const a = el('a','Open original source'); a.href = C.sourceUrl(s.url); a.target = '_blank'; a.rel = 'noopener noreferrer'; card.append(a); }
+      if (s.note) card.append(el('pre',s.note));
+      const actions = el('div',undefined,'actions'), edit = el('button','Edit'), remove = el('button','Remove'); edit.type = remove.type = 'button';
+      edit.setAttribute('aria-label','Edit source ' + (index+1)); remove.setAttribute('aria-label','Remove source ' + (index+1));
+      edit.addEventListener('click', () => { editingSource = index; notebookRevision++; for (const [key,id] of Object.entries(sourceFields)) $(id).value = s[key] || ''; $('sourceForm').open = true; $('sourceFormLabel').textContent = 'Edit source ' + (index+1); $('addSource').textContent = 'Save source changes'; $('cancelSource').hidden = false; $('sourceTitle').focus(); });
+      remove.addEventListener('click', () => { book.sources.splice(index,1); notebookRevision++; clearSourceForm(); renderSources(); renderChecks(); status('Source note removed from this tab. Other notes are unchanged.'); });
+      actions.append(edit,remove); card.append(actions); list.append(card);
+    });
+  }
+  function renderBook() { for (const [key,id] of Object.entries(leadFields)) $(id).value = book[key]; $('leadOrigin').textContent = { news:'FROM NEWS GRABBER',swordfish:'FROM SWORDFISH',manual:'MANUAL NOTEBOOK' }[book.origin]; renderSources(); renderChecks(); }
+  $('addSource').addEventListener('click', () => {
+    try {
+      if (editingSource === null && book.sources.length >= 100) throw new Error('This notebook holds up to 100 source notes. Save it before beginning another review.');
+      const raw = Object.fromEntries(Object.entries(sourceFields).map(([key,id]) => [key,$(id).value]));
+      if (!C.clean(raw.title) && !C.clean(raw.url)) throw new Error('Give the source a title, observation label, or URL.');
+      const source = C.normaliseNotebook({ sources:[raw] }).sources[0];
+      if (editingSource === null) book.sources.push(source); else book.sources[editingSource] = source;
+      notebookRevision++; clearSourceForm(); renderSources(); renderChecks(); status('Source note kept locally. Your classifications remain review notes, not a verified finding.');
+    } catch (e) { status(e.message, true); }
+  });
+  $('cancelSource').addEventListener('click', clearSourceForm);
+  $('checkLead').addEventListener('click', () => { renderChecks(); status('Review gaps updated from your notes. The claim remains unadjudicated.'); });
+  $('saveLead').addEventListener('click', () => { try { download('btw-integrity-review.json', JSON.stringify(C.notebookSnapshot(book),null,2), 'application/json'); status('Review notebook downloaded with its sources, notes, and unadjudicated status.'); } catch(e) { status(e.message,true); } });
+  $('loadLead').addEventListener('change', async () => {
+    const file = $('loadLead').files[0], revision = notebookRevision, load = ++notebookLoadRevision; if (!file) return;
+    try {
+      if (file.size > 2*1024*1024) throw new Error('Choose a review notebook smaller than 2 MB.');
+      const next = C.restoreNotebook(await file.text());
+      if (load !== notebookLoadRevision) return;
+      if (revision !== notebookRevision) throw new Error('Your notes changed while the file was opening. Open it again when ready.');
+      if ((book.sources.length || book.title || book.question || book.answer) && !window.confirm('Replace the current source-review notebook? Save it first if you want to keep both.')) return;
+      book = next; notebookRevision++; clearSourceForm(); renderBook(); setTab('lead'); status('Saved review opened. Source notes are still unadjudicated.');
+    } catch(e) { if (load === notebookLoadRevision) status(e.message,true); } finally { if (load === notebookLoadRevision) $('loadLead').value = ''; }
+  });
+  renderBook();
+  try {
+    const raw = MozStore.session.getItem('btw.integrity.handoff.v1');
+    if (raw) { const next = C.fromHandoff(raw); MozStore.session.removeItem('btw.integrity.handoff.v1'); book = next; notebookRevision++; renderBook(); setTab('lead'); status('Source details copied from ' + (book.origin === 'news' ? 'News Grabber' : 'Swordfish') + '. Review the claim against original sources; nothing has been verified automatically.'); }
+  } catch(e) { status('Source handoff could not be opened: ' + e.message + ' You can still load a CSV or enter a source review.',true); }
+  window.MozIntegrityDesk=Object.freeze({receive:raw=>{const next=C.fromHandoff(raw);if((book.sources.length||book.title||book.question||book.answer)&&!window.confirm('Replace the current source-review notebook with this handoff? Export it first to keep both.'))throw new Error('Source handoff canceled; existing notes kept.');book=next;notebookRevision++;clearSourceForm();renderBook();setTab('lead');status('Source handoff received for review. Nothing verified automatically.');}});
+})();
+
+</script>
+<script nonce="__MOZCORP_NONCE__" data-moz-source="adapter/integrity.js">
+/* One-use source-review handoff only. No notebook, source notes or CSV capture. */
+(function () {
+  'use strict';
+  const host=window.MozHost;
+  if(!host)throw new Error('Integrity station host unavailable.');
+  let editVersion=0,restoring=false;
+  function receive(value){
+    const raw=typeof value==='string'?value?.toString():value?.handoff;
+    if(typeof raw!=='string'||raw.length>700000)throw new Error('Choose a bounded one-use Integrity handoff.');
+    const parsed=JSON.parse(raw);
+    if(!parsed||parsed.format!=='BTW-INTEGRITY-HANDOFF-1')throw new Error('Only one-use source handoffs can enter this desk. Use its local notebook import for saved reviews.');
+    const object=(v,allowed)=>{if(!v||typeof v!=='object'||Array.isArray(v)||Object.keys(v).some(k=>!allowed.includes(k)))throw new Error('Invalid source-handoff fields.');};
+    const text=(v,limit)=>{if(typeof v!=='string'||v.length>limit)throw new Error('Invalid source-handoff text.');};
+    object(parsed,['format','createdAt','notebook']);text(parsed.createdAt,80);if(!Number.isFinite(Date.parse(parsed.createdAt)))throw new Error('Invalid source-handoff time.');
+    const n=parsed.notebook;object(n,['title','question','answer','origin','sources']);text(n.title,500);text(n.question,2000);text(n.answer,6000);if(!['news','swordfish','manual'].includes(n.origin))throw new Error('Invalid source-handoff origin.');
+    if(!Array.isArray(n.sources)||n.sources.length>100)throw new Error('Invalid source-handoff notes.');
+    for(const s of n.sources){object(s,['id','title','url','publishedAt','note','kind','relation','group']);for(const [key,limit]of [['title',500],['url',2000],['publishedAt',200],['note',6000],['group',200]])text(s[key]??'',limit);if(!['primary','secondary','observation'].includes(s.kind)||!['supports','challenges','context'].includes(s.relation))throw new Error('Invalid source-handoff relation.');}
+    if(!window.MozIntegrityDesk?.receive)throw new Error('Integrity handoff receiver unavailable.');
+    restoring=true;try{window.MozIntegrityDesk.receive(raw);return{restored:true,oneUse:true,editVersion};}finally{restoring=false;}
+  }
+  host.register('capture',()=>{throw new Error('This source-review desk stays private. Use its own notebook or CSV exports.');});
+  host.register('restore',receive);host.register('stop',()=>({stopped:true,editVersion}));host.register('checkpoint',()=>({editVersion}));
+  host.register('focus',value=>{
+    const anchor=(typeof value==='string'?value:value?.anchor)||'';
+    if(!['','leadPanel','csvPanel'].includes(anchor))throw new Error('Unsupported Integrity focus target.');
+    const incoming=value&&typeof value==='object'?value.session:undefined;
+    let raw=null;
+    if(incoming!==undefined){if(!incoming||typeof incoming!=='object'||Array.isArray(incoming)||Object.keys(incoming).some(k=>!['btw.integrity.handoff.v1','btw-everywhen-fiction-cue-v1'].includes(k)))throw new Error('Invalid RAM handoff keys.');if(Object.hasOwn(incoming,'btw-everywhen-fiction-cue-v1'))throw new Error('Fiction cues belong in the machine or EVERYWHEN desk.');if(Object.hasOwn(incoming,'btw.integrity.handoff.v1')){raw=incoming['btw.integrity.handoff.v1'];if(typeof raw!=='string'||raw.length>700000)throw new Error('Source handoff too large.');}}
+    if(raw!==null){const store=window.MozStore?.session;if(!store)throw new Error('RAM handoff store unavailable.');const key='btw.integrity.handoff.v1',previous=store.getItem(key);store.setItem(key,raw);try{receive(raw);store.removeItem(key);}catch(error){if(previous===null)store.removeItem(key);else store.setItem(key,previous);throw error;}}
+    if(anchor)document.getElementById(anchor)?.scrollIntoView({behavior:'auto',block:'start'});
+    return{focused:true,anchor,handoff:raw!==null,editVersion};
+  });
+  for(const name of ['input','change','click'])document.addEventListener(name,event=>{if(event.isTrusted&&!restoring){editVersion++;host.dirty?.({editVersion});}},true);
+  window.addEventListener('mozcorp:init',()=>{const store=window.MozStore?.session,raw=store?.getItem('btw.integrity.handoff.v1');if(!raw)return;store.removeItem('btw.integrity.handoff.v1');try{receive(raw);}catch(error){const status=document.getElementById('workspaceStatus');if(status)status.textContent='Source handoff could not open: '+error.message;}});
+})();
+
+</script>
+</body>
+</html>
