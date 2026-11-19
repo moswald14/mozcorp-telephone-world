@@ -1,5 +1,6 @@
 /.dating-data/
 /dating/.wrangler/
+/dating/.pages-output/
 /dating/site-assets/
 /dating/wrangler.jsonc
 *.sqlite

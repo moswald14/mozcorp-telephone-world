@@ -2,11 +2,11 @@
 
 Bullshit Telephone World is a dating site for adults. Members choose a display name, answer an icebreaker, and opt into discovery. A private conversation opens when both people choose Interested. The site also includes the original MozCorp world, with the Telephone machine, Recent Transmissions, Voo Don’t, EVERYWHEN, Mozville, Friend Scrubber, Corruption Check, Swordfish, HOPE||LON, Bug World, and Dot Wave Studio.
 
-[Open Bullshit Telephone World](https://moswald14.github.io/mozcorp-telephone-world/)
+[Open dating](https://mozcorp-telephone-dating.pages.dev/dating) · [Explore MozCorp World](https://moswald14.github.io/mozcorp-telephone-world/#mozcorp)
 
 ## Dating
 
-Dating uses a shared database. The GitHub Pages edition checks for the dating server before enabling account creation. Member profiles, sign-in keys, matches, and messages live on the dating service. The creative world continues to use its portable projects and browser shelf.
+The public GitHub site opens dating on Cloudflare Pages. Member profiles, matches, and messages are stored in a dedicated D1 database. The dating site links to the original creative world and Studio address where browsers already keep their projects.
 
 Run the complete site locally with Node.js 24 or later.
 
@@ -18,6 +18,8 @@ Open [the local dating site](http://127.0.0.1:8787/dating.html). Use separate br
 
 ### Host the dating service
 
+**Cloudflare Pages and D1.** The public dating deployment uses the [`prepare-pages.mjs`](dating/prepare-pages.mjs) build. Run `node dating/prepare-pages.mjs` and upload the contents of `dating/.pages-output` to Pages. Initialize a dedicated D1 database with [`schema.sql`](dating/schema.sql), bind it to the production Pages project as `DB`, and redeploy. The public `/dating-api/status` endpoint confirms when the database is ready.
+
 **Cloudflare Workers and D1.** Create a dedicated D1 database. Copy `dating/wrangler.example.jsonc` to `dating/wrangler.jsonc` and fill in the database ID. Install or run a current Wrangler CLI signed into that account. From the repository root, run the following commands.
 
 ```sh
@@ -26,7 +28,7 @@ wrangler d1 execute mozcorp-telephone-dating --remote --file dating/schema.sql -
 wrangler deploy --config dating/wrangler.jsonc
 ```
 
-The worker serves the entire site on one HTTPS origin. On GitHub Pages, point the two dating links in `index.html` at the hosted `/dating.html` once the worker is verified. The production schema starts empty.
+The worker serves the entire site on one HTTPS origin. The production schema starts empty. Change the publishing URLs in `dating-app.mjs` and `dating/prepare-pages.mjs` for a separate installation.
 
 **Node hosting.** Run `node dating/server.mjs` behind an HTTPS reverse proxy on the same host. Set `TELEPHONE_PUBLIC_ORIGIN` to the public HTTPS origin and `TELEPHONE_DATA_DIR` to a persistent private directory. `TELEPHONE_PORT` defaults to 8787. Set `TELEPHONE_PROXY_IP_HEADER` only if the proxy overwrites that header with the client address. `TELEPHONE_SIGNUPS=closed` pauses new accounts on either runtime while existing members can sign in.
 

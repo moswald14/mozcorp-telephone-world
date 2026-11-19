@@ -29,7 +29,8 @@ test('eight authored rooms and machine aliases use a blocked-network script poli
   assert.equal(stations.find(room => room.id === 'recent').canonical, 'machine');
   assert.equal(stations.find(room => room.id === 'voodont').canonical, 'machine');
   for (const room of canonical) {
-    const source = await read('room-' + room + '.html', 'utf8');
+    // HTML parsers normalize line endings before checking inline script hashes.
+    const source = (await read('room-' + room + '.html', 'utf8')).replace(/\r\n?/g, '\n');
     const policy = source.match(/<meta http-equiv="Content-Security-Policy" content="([^"]+)">/)[1].replaceAll('&#x27;', "'");
     assert.match(policy, /connect-src 'none'/);
     assert.doesNotMatch(source, /\.nabu\.casa|\.duckdns\.org|\.mozzzz\.chatgpt\.site|hassio_ingress|BEGIN [A-Z ]*PRIVATE KEY/);

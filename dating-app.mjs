@@ -324,4 +324,9 @@ listen('refresh-thread', loadConversation);
 $('report-cancel').addEventListener('click', () => $('report').close());
 $('filter').addEventListener('change', () => change($('filter'), loadDiscovery));
 for (const control of panelButtons) control.addEventListener('click', () => change(control, () => showPanel(control.dataset.panel)));
-void start();
+if (location.origin === 'https://moswald14.github.io' &&
+    location.pathname === '/mozcorp-telephone-world/dating.html') {
+  location.replace('https://mozcorp-telephone-dating.pages.dev/dating');
+} else {
+  void start();
+}
