@@ -4,10 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
-  <meta name="description" content="Bullshit Telephone World, MozCorp labs, and editable Dot Wave Studio soundtracks.">
-  <title>Bullshit Telephone World · MozCorp</title>
+  <meta name="description" content="Bullshit Telephone World is a dating site for adults who want to start with a conversation. Explore the original MozCorp world and Dot Wave Studio.">
+  <title>Bullshit Telephone World · Dating</title>
   <link rel="stylesheet" href="./public-world.css">
   <link rel="stylesheet" href="./mozcorp.css">
+  <link rel="stylesheet" href="./dating.css">
   <script src="./doodle-bridge.js" defer></script>
   <script src="./public-world.mjs" type="module"></script>
 </head>
@@ -15,18 +16,37 @@
   <header class="site-header">
     <a class="wordmark" href="./">møzCORP</a>
     <nav aria-label="Public project">
+      <a href="./dating.html">Dating</a>
+      <a href="#mozcorp">MozCorp World</a>
       <a href="./studio.html#telephone">Dot Wave Studio</a>
       <a href="https://github.com/moswald14/doodletick">Doodle Tick Keeper</a>
       <a href="https://github.com/moswald14/mozcorp-telephone-world">Source on GitHub</a>
     </nav>
   </header>
   <main>
-    <header class="world-title">
-      <h1>Bullshit Telephone<br>World<span>.</span></h1>
-      <p>Put words through the machine. Keep the story. Give it a soundtrack.</p>
-      <p class="save-note">Worlds, savepoints, and proposals in this edition stay in this browser. Export a world to bring it into Keeper.</p>
-    </header>
-    <section id="workspace" aria-label="MozCorp Labs"></section>
+    <section class="dating-hero" aria-labelledby="dating-title">
+      <div class="dating-hero-copy">
+        <p class="dating-eyebrow">Dating for adults</p>
+        <h1 id="dating-title">Bullshit<br>Telephone<span>.</span></h1>
+        <p>Start with an icebreaker. Find someone you like. Talk when the interest goes both ways.</p>
+        <div class="dating-actions">
+          <a class="button dating-primary" href="./dating.html">Open dating</a>
+          <a href="#mozcorp">Explore MozCorp World</a>
+        </div>
+      </div>
+      <aside class="dating-prompt" aria-labelledby="hero-icebreaker">
+        <p class="dating-eyebrow">An icebreaker</p>
+        <h2 id="hero-icebreaker">What would you put in a vending machine for feelings?</h2>
+      </aside>
+    </section>
+    <section id="mozcorp" aria-labelledby="world-title">
+      <header class="creative-world-title">
+        <h2 id="world-title">MozCorp World</h2>
+        <p>Put a story through the Telephone machine and give it a soundtrack in Dot Wave Studio.</p>
+        <p class="save-note">Worlds, savepoints, and proposals stay in this browser. Export a world to bring it into Keeper.</p>
+      </header>
+      <section id="workspace" aria-label="MozCorp Labs"></section>
+    </section>
     <noscript><p>Turn on JavaScript to run the machine and open the rooms.</p></noscript>
   </main>
 </body>

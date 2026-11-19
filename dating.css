@@ -1,0 +1,126 @@
+:root {
+  --dating-pink: #ffb5d4;
+  --dating-coral: #ff9b87;
+  --dating-panel: #1a151e;
+  --dating-line: #504052;
+  --dating-muted: #bdb1c0;
+}
+.dating-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.22fr) minmax(250px, .78fr);
+  align-items: stretch;
+  gap: clamp(20px, 4vw, 64px);
+  padding: clamp(24px, 5.5vw, 76px) 0 clamp(28px, 5.5vw, 76px);
+}
+.dating-hero-copy, .dating-room-title { overflow-wrap: anywhere; }
+.dating-hero h1, .dating-room-title h1 {
+  margin: 0;
+  font: 850 clamp(42px, 8.4vw, 112px)/.93 system-ui, sans-serif;
+  letter-spacing: -.075em;
+}
+.dating-hero h1 span, .dating-room-title h1 span { color: var(--dating-pink); }
+.dating-hero-copy > p:not(.dating-eyebrow) { max-width: 45ch; font-size: clamp(17px, 1.8vw, 23px); }
+.dating-eyebrow {
+  margin: 0 0 12px;
+  color: var(--dating-pink);
+  font: 700 12px/1.4 monospace;
+  text-transform: uppercase;
+  letter-spacing: .115em;
+}
+.dating-prompt {
+  display: flex;
+  flex-direction: column;
+  justify-content: end;
+  min-height: 260px;
+  padding: clamp(22px, 4vw, 50px);
+  overflow: hidden;
+  border: 1px solid #9a4667;
+  border-radius: 16px;
+  background: radial-gradient(ellipse at 97% 1%, #793d58, transparent 66%),
+              linear-gradient(133deg, #362131, #201520 76%);
+}
+.dating-prompt h2 { margin: 0; max-width: 13ch; font: 750 clamp(27px, 4.15vw, 58px)/1.04 system-ui, sans-serif; letter-spacing: -.055em; }
+.dating-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.button.dating-primary { background: var(--dating-pink); border-color: var(--dating-pink); color: #24121d; font-weight: 750; }
+.button.dating-primary:hover { background: #ffd5e6; }
+.button.dating-danger { color: #ffc2b9; border-color: #92545a; }
+.button.dating-danger:hover { border-color: var(--dating-coral); }
+.dating-room .button:focus-visible, .dating-room input:focus-visible, .dating-room textarea:focus-visible,
+.dating-room select:focus-visible, .dating-room summary:focus-visible, .dating-hero a:focus-visible {
+  outline: 2px solid var(--dating-pink); outline-offset: 3px;
+}
+.creative-world-title { border-top: 1px solid var(--line); padding: 22px 0 10px; }
+.creative-world-title h2 { margin: 0; font-size: clamp(30px, 5vw, 60px); line-height: 1.05; letter-spacing: -.04em; }
+.creative-world-title p { max-width: 70ch; margin-bottom: 0; }
+.dating-room { max-width: 1040px; }
+.dating-room-title { padding: clamp(28px, 6vw, 68px) 0 20px; }
+.dating-room-title h1 { font-size: clamp(48px, 7vw, 86px); }
+.dating-notice { margin: 0 0 16px; padding: 10px 13px; border-left: 3px solid var(--dating-pink); background: #231925; }
+.dating-panel {
+  padding: clamp(16px, 3vw, 28px);
+  background: var(--dating-panel);
+  border: 1px solid var(--dating-line);
+  border-radius: 12px;
+}
+.dating-room h2, .dating-room h3 { margin: 0; line-height: 1.22; }
+.dating-panel > p { max-width: 68ch; }
+.dating-room details { margin-top: 20px; }
+.dating-room summary { cursor: pointer; color: var(--dating-pink); }
+.dating-form { display: grid; justify-items: start; gap: 12px; max-width: 650px; }
+.dating-form label:not(.dating-check), .dating-form-row, .dating-form textarea { width: 100%; }
+.dating-form-row { display: grid; grid-template-columns: 1fr 1fr; align-items: end; gap: 12px; }
+.dating-form label, .dating-filter { display: block; font-weight: 650; }
+.dating-form input:not([type="checkbox"]), .dating-form select, .dating-form textarea,
+.dating-filter select, #dating-generated-key {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--dating-line);
+  border-radius: 6px;
+  background: #110e15;
+  color: inherit;
+  font: inherit;
+  font-weight: 450;
+}
+.dating-form textarea { resize: vertical; }
+.dating-check { display: flex !important; gap: 8px; align-items: baseline; }
+.dating-check input { accent-color: var(--dating-pink); }
+.dating-muted { color: var(--dating-muted); font-size: .88em; font-weight: 450; }
+.dating-room :disabled { cursor: not-allowed; opacity: .62; }
+#dating-generated-key { margin: 10px 0; max-width: 42rem; font-family: monospace; }
+#dating-sign-in { margin-top: 12px; max-width: 360px; }
+.dating-nav, .dating-section-top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+.dating-nav { margin-bottom: 12px; }
+.dating-nav .button[aria-pressed="true"] { background: var(--dating-pink); color: #24121d; border-color: var(--dating-pink); }
+.dating-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 255px), 1fr)); gap: 12px; }
+.dating-card {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--dating-line);
+  border-radius: 9px;
+  background: #221925;
+  overflow-wrap: anywhere;
+}
+.dating-card p { margin: 0; white-space: pre-wrap; }
+.dating-card blockquote { margin: 2px 0 6px; color: var(--dating-pink); }
+.dating-card .dating-actions { align-self: end; gap: 8px; }
+.dating-account { border-top: 1px solid var(--dating-line); padding-top: 16px; }
+.dating-conversation { margin-top: 20px; border-top: 1px solid var(--dating-line); padding-top: 16px; }
+#dating-messages { display: grid; gap: 8px; padding: 0; list-style: none; }
+#dating-messages li { max-width: min(100%, 620px); width: fit-content; padding: 8px 12px; background: #2b2230; border-radius: 8px; }
+#dating-messages li.mine { justify-self: end; background: #4a273a; }
+#dating-messages li p { margin: 3px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+#dating-report { max-width: min(420px, calc(100vw - 32px)); color: inherit; }
+#dating-report::backdrop { background: #0b0710bd; }
+@media (max-width: 700px) {
+  .dating-hero { grid-template-columns: 1fr; }
+  .dating-prompt { min-height: 0; }
+  .dating-prompt h2 { max-width: 22ch; }
+}
+@media (max-width: 420px) {
+  .dating-form-row { grid-template-columns: 1fr; }
+}

@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="description" content="Create a dating profile, meet people, and talk after a mutual match on Bullshit Telephone World.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'none'; base-uri 'none'">
+  <title>Dating · Bullshit Telephone World</title>
+  <link rel="stylesheet" href="./public-world.css">
+  <link rel="stylesheet" href="./dating.css">
+  <script type="module" src="./dating-app.mjs"></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="wordmark" href="./">møzCORP</a>
+    <nav aria-label="Public project">
+      <a href="./dating.html" aria-current="page">Dating</a>
+      <a href="./#mozcorp">MozCorp World</a>
+      <a href="./studio.html#telephone">Dot Wave Studio</a>
+    </nav>
+  </header>
+  <main class="dating-room">
+    <header class="dating-room-title">
+      <p class="dating-eyebrow">Bullshit Telephone World</p>
+      <h1>Dating<span>.</span></h1>
+    </header>
+    <p id="dating-notice" class="dating-notice" role="status" aria-live="polite">Connecting to dating…</p>
+    <noscript><p>Enable JavaScript to use the dating site.</p></noscript>
+    <div id="dating-offline" class="dating-panel" hidden>
+      <h2>Dating access is offline</h2>
+      <p>Profiles and conversations become available when the dating server is connected.</p>
+      <div class="dating-actions">
+        <button id="dating-retry" class="button dating-primary" type="button">Try again</button>
+        <a href="./#mozcorp">Explore MozCorp World</a>
+      </div>
+    </div>
+    <section id="dating-auth" class="dating-panel" aria-labelledby="auth-title" hidden>
+      <h2 id="auth-title">Join Bullshit Telephone</h2>
+      <p>Choose a display name and answer an icebreaker. You decide when other members can see your profile.</p>
+      <form id="dating-register" class="dating-form">
+        <label class="dating-check"><input name="adult" type="checkbox" required> I am 18 or older</label>
+        <button class="button dating-primary" type="submit">Create account</button>
+      </form>
+      <p id="dating-signups-closed" hidden>New signups are paused.</p>
+      <details id="dating-sign-in-details">
+        <summary>Already have an account? Sign in</summary>
+        <form id="dating-sign-in" class="dating-form">
+          <label for="dating-key">Sign-in key</label>
+          <input id="dating-key" name="key" type="password" autocomplete="current-password" maxlength="47" required>
+          <button class="button dating-primary" type="submit">Sign in</button>
+        </form>
+      </details>
+    </section>
+    <section id="dating-new-key" class="dating-panel" aria-labelledby="key-title" hidden>
+      <h2 id="key-title">Save your sign-in key</h2>
+      <p>You’ll need this key to sign in again or use another device. Save it somewhere private. This is the only time it is shown.</p>
+      <label class="sr-only" for="dating-generated-key">Your new sign-in key</label>
+      <input id="dating-generated-key" type="text" readonly spellcheck="false" autocomplete="off">
+      <div class="dating-actions">
+        <button id="dating-copy-key" class="button" type="button">Copy key</button>
+        <button id="dating-key-done" class="button dating-primary" type="button">I saved it</button>
+      </div>
+    </section>
+    <section id="dating-members" aria-label="Dating workspace" hidden>
+      <nav class="dating-nav" aria-label="Dating sections">
+        <div class="dating-actions">
+          <button data-panel="discover" class="button" type="button" aria-pressed="false">Discover</button>
+          <button data-panel="matches" class="button" type="button" aria-pressed="false">Matches</button>
+          <button data-panel="profile" class="button" type="button" aria-pressed="false">My profile</button>
+        </div>
+        <button id="dating-signout" class="button" type="button">Sign out</button>
+      </nav>
+      <section id="dating-panel-profile" class="dating-panel" aria-labelledby="profile-title" hidden>
+        <h2 id="profile-title">My profile</h2>
+        <form id="dating-profile" class="dating-form">
+          <div class="dating-form-row">
+            <label>Display name<input name="alias" required minlength="2" maxlength="40" autocomplete="nickname"></label>
+            <label>Age<input name="age" type="number" inputmode="numeric" min="18" max="120" required></label>
+          </div>
+          <div class="dating-form-row">
+            <label>Region <span class="dating-muted">optional</span><input name="region" maxlength="60" placeholder="City or general area"></label>
+            <label>Looking for
+              <select name="intent" required>
+                <option value="long-term">A relationship</option>
+                <option value="short-term">Casual dating</option>
+                <option value="open" selected>Open to seeing where it goes</option>
+              </select>
+            </label>
+          </div>
+          <label>About you <span class="dating-muted">optional</span><textarea name="intro" rows="3" maxlength="420"></textarea></label>
+          <label>What would you put in a vending machine for feelings?<textarea name="icebreaker" rows="3" minlength="5" maxlength="280" required></textarea></label>
+          <label class="dating-check"><input name="listed" type="checkbox"> Show my profile to signed-in members</label>
+          <button class="button dating-primary" type="submit">Save profile</button>
+        </form>
+        <details class="dating-account">
+          <summary>Delete my dating account</summary>
+          <p>This deletes your profile, matches, and conversations. Safety reports stay available for moderation.</p>
+          <button id="dating-delete" class="button dating-danger" type="button">Delete account</button>
+        </details>
+      </section>
+      <section id="dating-panel-discover" class="dating-panel" aria-labelledby="discover-title" hidden>
+        <div class="dating-section-top">
+          <h2 id="discover-title">Discover</h2>
+          <label class="dating-filter">Looking for
+            <select id="dating-filter">
+              <option value="">Any</option>
+              <option value="long-term">A relationship</option>
+              <option value="short-term">Casual dating</option>
+              <option value="open">Open to seeing where it goes</option>
+            </select>
+          </label>
+        </div>
+        <p id="dating-discover-empty"></p>
+        <div id="dating-discover-cards" class="dating-cards"></div>
+      </section>
+      <section id="dating-panel-matches" class="dating-panel" aria-labelledby="matches-title" hidden>
+        <div class="dating-section-top">
+          <h2 id="matches-title">Matches</h2>
+          <button id="dating-refresh-matches" class="button" type="button">Refresh matches</button>
+        </div>
+        <p id="dating-matches-empty"></p>
+        <div id="dating-match-cards" class="dating-cards"></div>
+        <section id="dating-conversation" class="dating-conversation" aria-labelledby="thread-title" hidden>
+          <div class="dating-section-top">
+            <h3 id="thread-title"></h3>
+            <button id="dating-refresh-thread" class="button" type="button">Refresh messages</button>
+          </div>
+          <ol id="dating-messages" aria-label="Recent messages"></ol>
+          <form id="dating-message" class="dating-form">
+            <label>Message<textarea name="message" rows="2" maxlength="800" required></textarea></label>
+            <button class="button dating-primary" type="submit">Send message</button>
+          </form>
+        </section>
+      </section>
+    </section>
+    <dialog id="dating-report" class="dating-panel" aria-labelledby="report-title">
+      <form id="dating-report-form" class="dating-form">
+        <h2 id="report-title">Report and block</h2>
+        <label>Reason
+          <select name="reason" required>
+            <option value="">Choose a reason</option>
+            <option value="harassment">Harassment</option>
+            <option value="spam">Spam or scam</option>
+            <option value="underage">Underage concern</option>
+            <option value="impersonation">Impersonation</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <div class="dating-actions">
+          <button id="dating-report-cancel" class="button" type="button">Cancel</button>
+          <button class="button dating-danger" type="submit">Report and block</button>
+        </div>
+        <p id="dating-report-error" role="status" hidden></p>
+      </form>
+    </dialog>
+  </main>
+</body>
+</html>

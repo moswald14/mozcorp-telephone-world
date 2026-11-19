@@ -1,0 +1,7 @@
+/.dating-data/
+/dating/.wrangler/
+/dating/site-assets/
+/dating/wrangler.jsonc
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

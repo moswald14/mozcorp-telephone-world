@@ -1,8 +1,40 @@
 # Bullshit Telephone World
 
-MozCorp’s complete creative workspace, with the original machine, Recent Transmissions, Voo Don’t, EVERYWHEN, Mozville, Friend Scrubber, Corruption Check, Swordfish, HOPE||LON, Bug World, and the integrated Dot Wave Studio.
+Bullshit Telephone World is a dating site for adults. Members choose a display name, answer an icebreaker, and opt into discovery. A private conversation opens when both people choose Interested. The site also includes the original MozCorp world, with the Telephone machine, Recent Transmissions, Voo Don’t, EVERYWHEN, Mozville, Friend Scrubber, Corruption Check, Swordfish, HOPE||LON, Bug World, and Dot Wave Studio.
 
-[Play the public edition](https://moswald14.github.io/mozcorp-telephone-world/)
+[Open Bullshit Telephone World](https://moswald14.github.io/mozcorp-telephone-world/)
+
+## Dating
+
+Dating uses a shared database. The GitHub Pages edition checks for the dating server before enabling account creation. Member profiles, sign-in keys, matches, and messages live on the dating service. The creative world continues to use its portable projects and browser shelf.
+
+Run the complete site locally with Node.js 24 or later.
+
+```sh
+node dating/server.mjs
+```
+
+Open [the local dating site](http://127.0.0.1:8787/dating.html). Use separate browser profiles to create two independent accounts and check a reciprocal match. Each account receives a randomly generated sign-in key. Save it before leaving the account creation screen.
+
+### Host the dating service
+
+**Cloudflare Workers and D1.** Create a dedicated D1 database. Copy `dating/wrangler.example.jsonc` to `dating/wrangler.jsonc` and fill in the database ID. Install or run a current Wrangler CLI signed into that account. From the repository root, run the following commands.
+
+```sh
+node dating/prepare-assets.mjs
+wrangler d1 execute mozcorp-telephone-dating --remote --file dating/schema.sql --config dating/wrangler.jsonc
+wrangler deploy --config dating/wrangler.jsonc
+```
+
+The worker serves the entire site on one HTTPS origin. On GitHub Pages, point the two dating links in `index.html` at the hosted `/dating.html` once the worker is verified. The production schema starts empty.
+
+**Node hosting.** Run `node dating/server.mjs` behind an HTTPS reverse proxy on the same host. Set `TELEPHONE_PUBLIC_ORIGIN` to the public HTTPS origin and `TELEPHONE_DATA_DIR` to a persistent private directory. `TELEPHONE_PORT` defaults to 8787. Set `TELEPHONE_PROXY_IP_HEADER` only if the proxy overwrites that header with the client address. `TELEPHONE_SIGNUPS=closed` pauses new accounts on either runtime while existing members can sign in.
+
+Report and block actions close the conversation for both people. Reports go into the private `dating_reports` table for the site operator to review. A member can hide their profile or delete their account. Account deletion removes their chats and matches. Moderation reports retain their reason and opaque account identifiers.
+
+Run `node --test public-world.test.mjs dating/dating.test.mjs` for the creative-world checks and the multi-account dating flow.
+
+## MozCorp World
 
 1. Open **By The Way / the whole machine** and enter a fictional prompt. Run it to see the story, **14 · Credits**, and **15 · Blooper Reel**.
 2. Choose **Save world** and **Edit soundtrack**. In Studio, make or load an editable soundtrack, then choose **Keep this song with the world**.
@@ -14,7 +46,7 @@ Keeper runs shared cloud savepoints, RSS news, HOPE, and optional AI proposals o
 
 ## Run a local copy
 
-Clone or download this repository. Run `python -m http.server 8080` in the extracted folder, then visit [the local preview](http://localhost:8080/). Start with an empty browser profile if you want a fresh project shelf. Run the included checks with `node --test public-world.test.mjs` on Node.js 22 or newer.
+Clone or download this repository. To preview just the creative world, run `python -m http.server 8080` in the extracted folder, then visit [the local preview](http://localhost:8080/#mozcorp). Start with an empty browser profile if you want a fresh project shelf.
 
 ## Run the public world in your own Keeper
 

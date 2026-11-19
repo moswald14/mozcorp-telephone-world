@@ -1,0 +1,15 @@
+{
+  "name": "mozcorp-telephone-dating",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-11-18",
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./site-assets",
+    "run_worker_first": ["/dating-api/*"]
+  },
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "mozcorp-telephone-dating",
+    "database_id": "REPLACE_WITH_YOUR_DATABASE_ID"
+  }]
+}
