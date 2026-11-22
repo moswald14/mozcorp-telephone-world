@@ -2,7 +2,13 @@
 
 Bullshit Telephone World is a dating site for adults. Members choose a display name, answer an icebreaker, and opt into discovery. A private conversation opens when both people choose Interested. The site also includes the original MozCorp world, with the Telephone machine, Recent Transmissions, Voo Don’t, EVERYWHEN, Mozville, Friend Scrubber, Corruption Check, Swordfish, HOPE||LON, Bug World, and Dot Wave Studio.
 
-[Open dating](https://mozcorp-telephone-dating.pages.dev/dating) · [Explore MozCorp World](https://moswald14.github.io/mozcorp-telephone-world/#mozcorp)
+[Open dating](https://mozcorp-telephone-dating.pages.dev/dating) · [Explore MozCorp World](https://moswald14.github.io/mozcorp-telephone-world/#mozcorp) · [Host Mozville on your Pi](https://github.com/moswald14/mozcorp-telephone-world/releases/tag/keeper-0.20b-private.7)
+
+## Host Mozville on your Pi
+
+Run an invite-only Mozville feed and Private Telephone Dating in your own Doodle Tick Keeper. Members can post, reply, and like under a Mozville name. Dating is optional. Mutual matches can co-write a story and edit its soundtrack together in Dot Wave Studio. Dating profiles can include a native DVC receiving address.
+
+The [Mozville for Keeper release](https://github.com/moswald14/mozcorp-telephone-world/releases/tag/keeper-0.20b-private.7) has a local app ZIP for Home Assistant OS and a separate bundle for Raspberry Pi OS. Each includes a setup guide. Your invites, profiles, and posts live on your Keeper.
 
 ## Dating
 
