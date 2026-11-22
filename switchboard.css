@@ -1,0 +1,59 @@
+.dating-hero-copy { align-self: center; }
+.switchboard {
+  align-self: start;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #9a4667;
+  border-radius: 16px;
+  background: #221620;
+}
+.switchboard-photo {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 8 / 5;
+  object-fit: cover;
+}
+.switchboard-card { padding: clamp(18px, 3vw, 32px); }
+.switchboard-card h2 {
+  margin: 0 0 18px;
+  font-size: clamp(23px, 2.8vw, 39px);
+  line-height: 1.1;
+  letter-spacing: -.04em;
+}
+.switchboard-card .button:focus-visible, .transmission-starter:focus-visible {
+  outline: 2px solid var(--dating-pink);
+  outline-offset: 3px;
+}
+#icebreaker-copy-field {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--dating-line);
+  border-radius: 6px;
+  background: #110e15;
+  color: inherit;
+  font: inherit;
+}
+.transmission-starters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 12px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.transmission-starter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--paper);
+  color: inherit;
+  text-decoration: none;
+}
+.transmission-starter strong { color: var(--dating-pink); }
+.transmission-starter span { color: var(--muted); }
+.transmission-starter:hover { border-color: var(--dating-pink); }

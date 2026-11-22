@@ -124,7 +124,7 @@ function captureRecord(bridge, value, base, title, stationId) {
   return bridge.validate(next);
 }
 
-export function createMozCorpUI(container, { onVault, onWorld, navigate } = {}) {
+export function createMozCorpUI(container, { onVault, onWorld, navigate, starter = null } = {}) {
   const B = globalThis.DoodleBridge;
   if (!B) throw new Error('Open MozCorp through your Keeper.');
   container.innerHTML = `<section class="moz-install" id="moz-install" hidden><p id="moz-install-note" role="alert"></p></section>
@@ -307,20 +307,34 @@ export function createMozCorpUI(container, { onVault, onWorld, navigate } = {}) 
       if (before && !before.closed) before.frame.inert = before !== active || !visible;
     }
   }
-  async function newProject() {
+  async function newProject(premise = null) {
     scorePlayer.stop();
-    const target = active && SAVABLE.has(active.stationId) ? active.stationId : 'machine';
+    const target = !premise && active && SAVABLE.has(active.stationId) ? active.stationId : 'machine';
     const previous = frames.get(target), generation = previous?.changeGeneration, titleGeneration = previous?.titleGeneration;
     if (!confirmReplace([previous])) return;
     if (previous) previous.frame.inert = true;
     let candidate;
     try {
       candidate = newFrame(target);
+      if (premise) {
+        const snapshot = await rpc(candidate, 'capture');
+        const draft = captureRecord(B, snapshot, B.make(premise.title), premise.title, target);
+        if (draft.sourceMode !== 'fiction') fail('A starter needs a fresh fiction workspace.');
+        draft.sourceText = premise.seed;
+        const ack = await rpc(candidate, 'restore', B.validate(draft));
+        if (!plain(ack) || ack.restored !== true || ack.engine !== 'mozcorp-v13') fail('The machine could not load that premise.');
+        candidate.title = draft.title;
+        candidate.dirty = true;
+      }
       candidate.editVersion = checkpoint(await rpc(candidate, 'checkpoint'));
       if (previous && (previous.changeGeneration !== generation || previous.titleGeneration !== titleGeneration)) fail('New world canceled because the current world changed.');
       if (previous) dispose(previous);
       frames.set(target, candidate); activate(candidate); candidate = null;
-      status('New world ready. Your saved project shelf is preserved.');
+      if (premise) {
+        try { await focus(active, { startAnchor: 'machineHopper' }); } catch {}
+        status('Premise loaded. Run the machine from the Input Hopper, then save your world or edit its soundtrack.');
+      } else status('New world ready. Your saved project shelf is preserved.');
+      return true;
     } finally { if (candidate) dispose(candidate); if (previous && !previous.closed) previous.frame.inert = previous !== active || !visible; }
   }
   async function baseForSave(session) {
@@ -370,7 +384,24 @@ export function createMozCorpUI(container, { onVault, onWorld, navigate } = {}) 
     await refreshShelf(); update();
     const requested = new URLSearchParams(location.search).get('mozcorp');
     if (info.installed && requested && !requestedOpened) { requestedOpened = true; await openRecord(requested); }
-    else if (info.installed && visible && !active && !localDesk) await openStation('machine');
+    else if (info.installed && visible && !active && !localDesk) {
+      if (starter) {
+        const premise = starter; starter = null;
+        await run(async () => {
+          try {
+            if (await newProject(premise)) {
+              const url = new URL(location.href);
+              url.searchParams.delete('transmission');
+              history.replaceState(history.state, '', url);
+              $('moz-project-controls').scrollIntoView({ block: 'start' });
+            }
+          } catch {
+            await openStation('machine');
+            status('Could not load the premise. You can enter it in the Input Hopper.', true);
+          }
+        });
+      } else await openStation('machine');
+    }
   }
   function sourceLink(payload) {
     if (!plain(payload) || typeof payload.url !== 'string' || payload.url.length > 4096) fail('Choose a supported source link.');

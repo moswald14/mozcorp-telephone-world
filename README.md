@@ -44,6 +44,8 @@ Run `node --test public-world.test.mjs dating/dating.test.mjs` for the creative-
 
 ## MozCorp World
 
+Choose **Dial a story** for three fictional starters. Each opens a fresh workspace with the premise loaded in the Input Hopper. Run the machine, save the world, and choose **Edit soundtrack** to take it into Dot Wave Studio. On the dating side of the homepage, **Next question** and **Copy question** give you an icebreaker you can use in a profile or conversation.
+
 1. Open **By The Way / the whole machine** and enter a fictional prompt. Run it to see the story, **14 · Credits**, and **15 · Blooper Reel**.
 2. Choose **Save world** and **Edit soundtrack**. In Studio, make or load an editable soundtrack, then choose **Keep this song with the world**.
 3. Open the world again to keep writing. **Export project** makes a portable file that can also open in MozCorp on Doodle Tick Keeper.
@@ -65,3 +67,5 @@ Use a fresh checkout of [Keeper 0.17b](https://github.com/moswald14/doodletick/t
 ## Source and credits
 
 The room HTML contains the editable scripts and artwork from the MozCorp world as distributed here. The host and integrated Studio adapt code from the public Doodle Tick release. See [NOTICE.md](./NOTICE.md) and [Studio’s notices](./studio-notices.txt) for provenance and terms.
+
+The [plugin waterfall](./docs/plugin-waterfall.md) records the steps for building, testing, and publishing an update.

@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="./public-world.css">
   <link rel="stylesheet" href="./mozcorp.css">
   <link rel="stylesheet" href="./dating.css">
+  <link rel="stylesheet" href="./switchboard.css">
   <script src="./doodle-bridge.js" defer></script>
   <script src="./public-world.mjs" type="module"></script>
 </head>
@@ -32,13 +33,28 @@
         <p>Start with an icebreaker. Find someone you like. Talk when the interest goes both ways.</p>
         <div class="dating-actions">
           <a class="button dating-primary" href="./dating.html">Open dating</a>
-          <a href="#mozcorp">Explore MozCorp World</a>
+          <a href="#dial-a-story">Dial a story</a>
         </div>
       </div>
-      <aside class="dating-prompt" aria-labelledby="hero-icebreaker">
-        <p class="dating-eyebrow">An icebreaker</p>
-        <h2 id="hero-icebreaker">What would you put in a vending machine for feelings?</h2>
+      <aside class="switchboard" aria-labelledby="hero-icebreaker">
+        <img class="switchboard-photo" src="./switchboard-phone.jpg" alt="" width="960" height="640">
+        <div class="switchboard-card">
+          <p class="dating-eyebrow">An icebreaker</p>
+          <h2 id="hero-icebreaker" aria-live="polite">What would you put in a vending machine for feelings?</h2>
+          <div id="switchboard-actions" class="dating-actions" hidden>
+            <button id="next-icebreaker" class="button" type="button">Next question</button>
+            <button id="copy-icebreaker" class="button" type="button">Copy question</button>
+          </div>
+          <p id="icebreaker-status" class="save-note" role="status" hidden></p>
+          <input id="icebreaker-copy-field" type="text" aria-label="Icebreaker to copy" readonly hidden>
+        </div>
       </aside>
+    </section>
+    <section id="dial-a-story" class="creative-world-title" aria-labelledby="dial-a-story-title">
+      <h2 id="dial-a-story-title">Dial a story</h2>
+      <p>Pick a fictional premise to open a fresh world in a new tab. Run the machine, save your story, and score it in Dot Wave Studio.</p>
+      <ul id="transmission-starters" class="transmission-starters" aria-label="Story starters"></ul>
+      <p><a href="#mozcorp">Open the machine and write your own premise</a></p>
     </section>
     <section id="host-mozville" class="creative-world-title" aria-labelledby="host-mozville-title">
       <h2 id="host-mozville-title">Host your own Mozville</h2>

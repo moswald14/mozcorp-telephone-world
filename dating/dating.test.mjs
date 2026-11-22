@@ -25,7 +25,13 @@ test('shared dating accounts, reciprocal matches and private conversations', asy
   }
 
   const page = await fetch(origin + '/');
-  assert.match(await page.text(), /Dating for adults/);
+  const landing = await page.text();
+  assert.match(landing, /Dating for adults/);
+  assert.match(landing, /src="\.\/switchboard-phone\.jpg"/);
+  const switchboardPhoto = await fetch(origin + '/switchboard-phone.jpg');
+  assert.equal(switchboardPhoto.status, 200);
+  assert.equal(switchboardPhoto.headers.get('content-type'), 'image/jpeg');
+  assert.deepEqual([...new Uint8Array(await switchboardPhoto.arrayBuffer()).subarray(0, 2)], [0xff, 0xd8]);
   const datingPage = await fetch(origin + '/dating.html');
   assert.match(await datingPage.text(), /Show my profile to signed-in members/);
   assert.equal((await fetch(origin + '/dating/schema.sql')).status, 404);

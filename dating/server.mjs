@@ -11,6 +11,7 @@ const webRoot = fileURLToPath(new URL('../', import.meta.url));
 const types = new Map([
   ['html', 'text/html; charset=utf-8'], ['css', 'text/css; charset=utf-8'],
   ['js', 'text/javascript; charset=utf-8'], ['mjs', 'text/javascript; charset=utf-8'],
+  ['jpg', 'image/jpeg'],
   ['zip', 'application/zip'], ['txt', 'text/plain; charset=utf-8'], ['md', 'text/plain; charset=utf-8'],
 ]);
 
