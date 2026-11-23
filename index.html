@@ -20,7 +20,7 @@
       <a href="./dating.html">Dating</a>
       <a href="#mozcorp">MozCorp World</a>
       <a href="#host-mozville">Host Mozville</a>
-      <a href="./studio.html#telephone">Dot Wave Studio</a>
+      <a href="#dot-studio">Dot Wave Studio</a>
       <a href="https://github.com/moswald14/doodletick">Doodle Tick Keeper</a>
       <a href="https://github.com/moswald14/mozcorp-telephone-world">Source on GitHub</a>
     </nav>
@@ -68,6 +68,21 @@
         <p class="save-note">Worlds, savepoints, and proposals stay in this browser. Export a world to bring it into Keeper.</p>
       </header>
       <section id="workspace" aria-label="MozCorp Labs"></section>
+    </section>
+    <section id="dot-studio" class="studio-panel" aria-labelledby="dot-studio-title">
+      <header class="studio-panel-header">
+        <div>
+          <h2 id="dot-studio-title" tabindex="-1">Dot Wave Studio</h2>
+          <p>Make music here, or edit a saved world’s soundtrack.</p>
+        </div>
+        <div class="studio-panel-actions">
+          <button class="button primary" id="dot-studio-open" type="button" hidden>Open Studio</button>
+          <a href="#mozcorp">Back to MozCorp</a>
+          <a id="dot-studio-separate" href="./studio.html#sound" target="_blank" rel="noopener">Open in a separate tab</a>
+        </div>
+      </header>
+      <p id="dot-studio-status" class="save-note" role="status"></p>
+      <div id="dot-studio-editor"></div>
     </section>
     <noscript><p>Turn on JavaScript to run the machine and open the rooms.</p></noscript>
   </main>

@@ -47,8 +47,10 @@ Run `node --test public-world.test.mjs dating/dating.test.mjs` for the creative-
 Choose **Dial a story** for three fictional starters. Each opens a fresh workspace with the premise loaded in the Input Hopper. Run the machine, save the world, and choose **Edit soundtrack** to take it into Dot Wave Studio. On the dating side of the homepage, **Next question** and **Copy question** give you an icebreaker you can use in a profile or conversation.
 
 1. Open **By The Way / the whole machine** and enter a fictional prompt. Run it to see the story, **14 · Credits**, and **15 · Blooper Reel**.
-2. Choose **Save world** and **Edit soundtrack**. In Studio, make or load an editable soundtrack, then choose **Keep this song with the world**.
-3. Open the world again to keep writing. **Export project** makes a portable file that can also open in MozCorp on Doodle Tick Keeper.
+2. Choose **Edit soundtrack** to save the world and open it in the embedded Dot Wave Studio. Make or load an editable soundtrack, then choose **Keep this song with the world** in Studio’s **Telephone** tab.
+3. Choose **Back to MozCorp** to return to the same room. **Export project** makes a portable file that can also open in MozCorp on Doodle Tick Keeper.
+
+Choose **Dot Wave Studio** from the site navigation to start with the sound editor. Use **Open in a separate tab** when you want the standalone editor.
 
 The browser edition includes local savepoints, a paused-by-default HOPE fiction feed, and a manual proposal desk. Savepoints store the pre-story machine state. **Save world** keeps the final story and its attached score. Browser saves stay on this browser and address. Use the export controls to keep copies.
 

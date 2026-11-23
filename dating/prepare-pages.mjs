@@ -15,7 +15,7 @@ const [html, service, worker] = await Promise.all([
 // The creative-world links return to the original origin where its browser saves live.
 const page = html.replace('class="wordmark" href="./"', `class="wordmark" href="${world}"`)
   .replaceAll('href="./#mozcorp"', `href="${world}#mozcorp"`)
-  .replace('href="./studio.html#telephone"', `href="${world}studio.html#telephone"`)
+  .replace('href="./#dot-studio"', `href="${world}#dot-studio"`)
   .replace('href="./dating.html"', 'href="/dating"');
 const importLine = "import { createDatingService } from './service.mjs';";
 if (!worker.startsWith(importLine)) throw new Error('Unexpected dating worker entry point.');

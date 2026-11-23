@@ -56,6 +56,14 @@ main { width: min(100% - 32px, 1440px); margin: 0 auto 56px; }
 .moz-stations { margin-top: 22px; }
 .moz-station { min-height: 40px; }
 .moz-frame { min-height: 460px; height: 76vh; }
+.studio-panel { margin-top: 36px; padding: 20px 0 0; border-top: 1px solid var(--line); scroll-margin-top: 12px; }
+.studio-panel-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; }
+.studio-panel-header h2 { margin: 0; font-size: clamp(28px, 4vw, 46px); line-height: 1.1; letter-spacing: -.045em; }
+.studio-panel-header p { margin: 6px 0 0; color: var(--muted); }
+.studio-panel-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+#dot-studio-status { margin: 10px 0 0; }
+#dot-studio-status:empty { margin: 0; }
+.studio-panel iframe { display: block; width: 100%; height: clamp(560px, 83dvh, 1020px); margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
 @media (max-width: 620px) {
   .site-header { align-items: flex-start; flex-direction: column; }
   .site-header nav { gap: 8px 14px; }

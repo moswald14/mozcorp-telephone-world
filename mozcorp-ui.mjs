@@ -124,14 +124,14 @@ function captureRecord(bridge, value, base, title, stationId) {
   return bridge.validate(next);
 }
 
-export function createMozCorpUI(container, { onVault, onWorld, navigate, starter = null } = {}) {
+export function createMozCorpUI(container, { onVault, onWorld, navigate, starter = null, openStudio, stopStudio } = {}) {
   const B = globalThis.DoodleBridge;
   if (!B) throw new Error('Open MozCorp through your Keeper.');
   container.innerHTML = `<section class="moz-install" id="moz-install" hidden><p id="moz-install-note" role="alert"></p></section>
     <div class="moz-workspace" id="moz-workspace" hidden><nav id="moz-stations" class="moz-stations" aria-label="MozCorp stations"></nav>
       <section class="moz-project utility-card" id="moz-project-controls"><div class="moz-title-row"><label>PROJECT NAME<input id="moz-title" maxlength="80" value="Untitled MozCorp world" autocomplete="off"></label><span id="moz-save-state" role="status">Ready</span></div>
       <div class="moz-actions"><button id="moz-save" class="button primary" type="button">Save world</button><button id="moz-new" class="button quiet" type="button">New</button><button id="moz-export" class="button quiet" type="button">Export project</button><button id="moz-import" class="button quiet" type="button">Import project</button><button id="moz-stop" class="button quiet" type="button">Stop sound & motion</button></div>
-      <div class="moz-actions moz-shelf"><label class="sr-only" for="moz-projects">Saved MozCorp projects</label><select id="moz-projects" aria-label="Saved MozCorp projects"><option value="">Your saved worlds…</option></select><button id="moz-open" class="button quiet" type="button">Open</button><button id="moz-play" class="button quiet" type="button">▶ Soundtrack</button><button id="moz-studio" class="button quiet" type="button">Edit soundtrack ↗</button><button id="moz-vault" hidden class="button quiet" type="button">Copy text to vault</button><button id="moz-world" hidden class="button quiet" type="button">Make playable map</button></div>
+      <div class="moz-actions moz-shelf"><label class="sr-only" for="moz-projects">Saved MozCorp projects</label><select id="moz-projects" aria-label="Saved MozCorp projects"><option value="">Your saved worlds…</option></select><button id="moz-open" class="button quiet" type="button">Open</button><button id="moz-play" class="button quiet" type="button">▶ Soundtrack</button><button id="moz-studio" class="button quiet" type="button">Edit soundtrack</button><button id="moz-vault" hidden class="button quiet" type="button">Copy text to vault</button><button id="moz-world" hidden class="button quiet" type="button">Make playable map</button></div>
       <p class="moz-note" id="moz-scope">Machine and Bug World projects use this browser’s unencrypted creative shelf. Other desks keep their own exports. Export projects to bring them into Keeper.</p><input id="moz-project-file" type="file" accept=".json,.btwpkg,application/json" hidden></section>
       <p class="moz-status" id="moz-status" role="status" aria-live="polite">Choose a room to begin.</p>
       <div class="moz-original" id="moz-original" hidden><p id="moz-original-note"></p><a id="moz-original-link" class="button quiet" target="_blank" rel="noopener noreferrer">Open source ↗</a></div>
@@ -216,7 +216,7 @@ export function createMozCorpUI(container, { onVault, onWorld, navigate, starter
     });
   }
   async function stop(session) { if (session && !session.closed) await rpc(session, 'stop', {}, 3000); }
-  async function stopAll() { scorePlayer.stop(); await Promise.all([...allFrames].map(session => stop(session).catch(() => {}))); }
+  async function stopAll() { scorePlayer.stop(); stopStudio?.(); await Promise.all([...allFrames].map(session => stop(session).catch(() => {}))); }
   function activate(session) {
     localDesk = null; cloudDesk.setVisible(false); upgradesDesk.setVisible(false);
     active = session;
@@ -507,7 +507,11 @@ export function createMozCorpUI(container, { onVault, onWorld, navigate, starter
     if (active?.record?.id === record.id) { active.importBase = active.record; active.record = null; active.titleDirty = true; active.dirty = true; update(); status('Imported into a separate room. Review the world, then Save world to keep the new copy.'); }
   });
   $('moz-export').onclick = () => run(async () => { if (!active || !SAVABLE.has(active.stationId)) fail('This desk uses its own exports.'); const capture = await rpc(active, 'capture'), base = await baseForSave(active); B.download(captureRecord(B, capture, base, active.title, active.stationId)); status('Portable project exported. Your current unsaved edits remain in this room.'); });
-  $('moz-studio').onclick = () => run(async () => { const record = await saveSession(); if (needsWarning(active) && !confirm('Newer edits are still unsaved. Save them before leaving, or continue with the version already saved?')) return; await stopAll(); const url = new URL('./studio.html', import.meta.url); url.searchParams.set('project', record.id); url.hash = 'telephone'; location.href = url.href; });
+  $('moz-studio').onclick = () => run(async () => {
+    const record = await saveSession();
+    await stopAll();
+    await openStudio(record);
+  });
   $('moz-play').onclick = () => run(async () => { const record = await saveSession(); await stopAll(); await scorePlayer.play(record); });
   $('moz-vault').onclick = () => run(async () => { const record = await saveSession(); await stopAll(); await onVault?.(record); });
   $('moz-world').onclick = () => run(async () => { const record = await saveSession(); if (record.sourceMode !== 'fiction') fail('This source is held. Choose fiction in its machine before generating a fictional map.'); await stopAll(); await onWorld?.(record); });

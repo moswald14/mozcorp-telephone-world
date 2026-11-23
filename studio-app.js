@@ -1504,7 +1504,9 @@ window.DOT_STARTER_LIBRARY={"kind":"dot-wave-library","version":1,"waves":[{"id"
   let p = C.blank(), undo = [], redo = [], savedVersion = null, revision = 0, fileMode = 'project', fileTicket = 0;
   let saveTimer, toastTimer, gesture = null, lastExportAudio = null;
   const telephone = {items:[], selected:null, loading:false, loaded:false, error:'', ticket:0};
-  const requestedTelephone = new URLSearchParams(location.search).get('project');
+  const studioParams = new URLSearchParams(location.search);
+  const embeddedTelephone = window.parent !== window && studioParams.get('embed') === 'telephone';
+  let requestedTelephone = studioParams.get('project');
   const ui = {step:'sound', part:'melody', sound:'stock-sine', drum:0, beatBar:0, grid:.25, length:.5, velocity:.65,
     noteMode:'draw', selected:[], cursor:0, zoom:1, songZoom:1, clip:null, editTarget:null, pattern:null,
     noteBase:48, recover:null, recovered:false, busy:false, exportScope:'song', exportRate:44100, noteCursor:0,
@@ -1687,17 +1689,19 @@ window.DOT_STARTER_LIBRARY={"kind":"dot-wave-library","version":1,"waves":[{"id"
   }
   function telephoneView() {
     const item = telephone.selected, unavailable = !window.DoodleBridge;
-    const selected = item ? `<div class="telephone-project"><span class="eyebrow">${esc(item.sourceMode === 'fiction' ? 'FICTION / REMIX ENABLED IN TELEPHONE' : 'SOURCE HELD / EXACT WORDS PRESERVED')}</span><h2>${esc(item.title)}</h2><p class="telephone-caption">Music is a separate composition. Your source and story stay as written.</p><div class="telephone-actions"><a class="telephone-link" href="${esc(DoodleBridge.route(item))}">Open ${item.machine.mozcorp ? 'MozCorp world' : 'Telephone World'} ↗</a><button data-action="telephone-make" ${telephone.loading?'disabled':''}>Make an editable soundtrack</button><button class="quiet" data-action="telephone-load" ${telephone.loading||!item.soundtrack?'disabled':''}>Load saved soundtrack</button><button class="small-primary" data-action="telephone-save" ${telephone.loading?'disabled':''}>Keep this song with the world</button></div><div class="telephone-texts"><section><h3>Original source</h3><pre>${esc(item.sourceText || 'No source yet.')}</pre></section><section><h3>Story</h3><pre>${esc(item.storyText || 'Run the machine in Telephone World, then save its session.')}</pre></section><section><h3>Character</h3><pre>${esc(item.characterText || 'No generated character.')}</pre></section></div></div>` : '<p class="telephone-empty">Choose a saved session, or open Telephone World to make one. Its source, story, characters and soundtrack can travel together.</p>';
+    const worldLink = item && !embeddedTelephone ? `<a class="telephone-link" href="${esc(DoodleBridge.route(item))}">Open ${item.machine.mozcorp ? 'MozCorp world' : 'Telephone World'} ↗</a>` : '';
+    const selected = item ? `<div class="telephone-project"><span class="eyebrow">${esc(item.sourceMode === 'fiction' ? 'FICTION / REMIX ENABLED IN TELEPHONE' : 'SOURCE HELD / EXACT WORDS PRESERVED')}</span><h2>${esc(item.title)}</h2><p class="telephone-caption">Music is a separate composition. Your source and story stay as written.</p><div class="telephone-actions">${worldLink}<button data-action="telephone-make" ${telephone.loading?'disabled':''}>Make an editable soundtrack</button><button class="quiet" data-action="telephone-load" ${telephone.loading||!item.soundtrack?'disabled':''}>Load saved soundtrack</button><button class="small-primary" data-action="telephone-save" ${telephone.loading?'disabled':''}>Keep this song with the world</button></div><div class="telephone-texts"><section><h3>Original source</h3><pre>${esc(item.sourceText || 'No source yet.')}</pre></section><section><h3>Story</h3><pre>${esc(item.storyText || 'Run the machine in Telephone World, then save its session.')}</pre></section><section><h3>Character</h3><pre>${esc(item.characterText || 'No generated character.')}</pre></section></div></div>` : '<p class="telephone-empty">Choose a saved session, or open Telephone World to make one. Its source, story, characters and soundtrack can travel together.</p>';
     const shelf = telephone.items.map(record=>`<button class="telephone-tile ${item?.id===record.id?'selected':''}" data-action="telephone-select" data-id="${esc(record.id)}"><strong>${esc(record.title)}</strong><small>${esc(record.sourceMode)} · ${record.hasSoundtrack?'soundtrack saved':'ready for music'}</small></button>`).join('');
-    return heading(6,'A story with a sound.','Bring Telephone World and MozCorp into your studio. Keep the words, make the music, carry it all back.')+`<div class="telephone-layout"><aside class="panel telephone-shelf"><div class="panel-head"><h2>YOUR TELEPHONE WORLDS</h2><button data-action="telephone-refresh" class="quiet" ${telephone.loading?'disabled':''}>Refresh</button></div><a class="telephone-link" href="./">＋ Open Telephone World</a><a class="telephone-keeper" href="./">← Back to MozCorp</a><p class="telephone-caption">Saved on this browser and address. Export a Telephone project to carry it to another device.</p>${unavailable?'<p role="status">Open this studio from the complete Doodleverse package to connect your Telephone projects.</p>':telephone.loading?'<p role="status">Opening the shared project shelf…</p>':''}${telephone.error?`<p role="alert">${esc(telephone.error)}</p>`:''}<div class="telephone-tiles">${shelf||(!telephone.loading?'<p class="telephone-caption">Your first world starts with a few words.</p>':'')}</div></aside><section class="panel panel-body">${selected}</section></div>`;
+    return heading(6,'A story with a sound.','Bring Telephone World and MozCorp into your studio. Keep the words, make the music, carry it all back.')+`<div class="telephone-layout"><aside class="panel telephone-shelf"><div class="panel-head"><h2>YOUR TELEPHONE WORLDS</h2><button data-action="telephone-refresh" class="quiet" ${telephone.loading?'disabled':''}>Refresh</button></div>${embeddedTelephone ? '' : '<a class="telephone-link" href="./">＋ Open Telephone World</a><a class="telephone-keeper" href="./">← Back to MozCorp</a>'}<p class="telephone-caption">Saved on this browser and address. Export a Telephone project to carry it to another device.</p>${unavailable?'<p role="status">Open this studio from the complete Doodleverse package to connect your Telephone projects.</p>':telephone.loading?'<p role="status">Opening the shared project shelf…</p>':''}${telephone.error?`<p role="alert">${esc(telephone.error)}</p>`:''}<div class="telephone-tiles">${shelf||(!telephone.loading?'<p class="telephone-caption">Your first world starts with a few words.</p>':'')}</div></aside><section class="panel panel-body">${selected}</section></div>`;
   }
   async function refreshTelephone(id) {
     if (!window.DoodleBridge) return;
+    if (id) requestedTelephone = id;
     const ticket = ++telephone.ticket; telephone.loading = true; telephone.error = '';
     if (ui.step === 'telephone') render();
     try {
       const items = await DoodleBridge.list();
-      const target = id || telephone.selected?.id || requestedTelephone || items[0]?.id;
+      const target = requestedTelephone || telephone.selected?.id || items[0]?.id;
       const selected = target ? await DoodleBridge.get(target) : null;
       if (ticket !== telephone.ticket) return;
       telephone.items = items; telephone.selected = selected ? TelephoneScore.checked(selected) : null;
@@ -2178,5 +2182,7 @@ window.DOT_STARTER_LIBRARY={"kind":"dot-wave-library","version":1,"waves":[{"id"
   refreshTelephone();
   if(window.DoodleBridge) DoodleBridge.watch(()=>refreshTelephone());
   window.DotWaveStudio=Object.freeze({version:'2.3.0',snapshot:()=>C.serialize(p),refreshTelephone,
+    openTelephone(id){setStep('telephone');return refreshTelephone(id);},
+    stop(){audio.stop();cancelRecording();},
     get state(){return {step:ui.step,playing:audio.playing,pending:audio.pending,scope:audio.scope,revision,selected:[...ui.selected],telephoneId:telephone.selected?.id||null};}});
 })();
